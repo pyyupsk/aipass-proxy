@@ -10,7 +10,16 @@ if (!SESSION_TOKEN) {
 
 const cookieHeader = `__Secure-ai_passport_auth.session_token=${SESSION_TOKEN}`;
 
+// Cloudflare blocks requests without a browser-like User-Agent.
+const baseHeaders = {
+  Cookie: cookieHeader,
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+  Accept: "application/json, text/plain, */*",
+};
+
 type OpenAIMessage = { role: string; content: string };
+type AipassModel = { id: string; displayName: string };
 
 function toAipassMessages(messages: OpenAIMessage[]) {
   return messages.map((m) => ({
@@ -23,10 +32,7 @@ function toAipassMessages(messages: OpenAIMessage[]) {
 async function createConversation(modelId: string, firstMessage: string) {
   const res = await fetch(`${AIPASS_BASE}/chat.data`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Cookie: cookieHeader,
-    },
+    headers: { ...baseHeaders, "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       message: firstMessage,
       folderId: "",
@@ -49,14 +55,21 @@ async function createConversation(modelId: string, firstMessage: string) {
 async function sendMessage(conversationId: string, modelId: string, messages: OpenAIMessage[]) {
   const res = await fetch(`${AIPASS_BASE}/actions/send-message/${conversationId}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Cookie: cookieHeader,
-    },
+    headers: { ...baseHeaders, "Content-Type": "application/json" },
     body: JSON.stringify({ modelId, messages: toAipassMessages(messages) }),
   });
   if (!res.ok || !res.body) throw new Error(`send-message failed: ${res.status} ${await res.text()}`);
   return res.body;
+}
+
+// Media-generation models AIPass exposes that opencode can't use as a chat model.
+const NON_CHAT_MODEL = /image|seedance|seedream|veo-|lyria|deep-research/i;
+
+async function listModels() {
+  const res = await fetch(`${AIPASS_BASE}/loaders/list-models`, { headers: baseHeaders });
+  if (!res.ok) throw new Error(`list-models failed: ${res.status} ${await res.text()}`);
+  const body = (await res.json()) as { data: AipassModel[] };
+  return body.data.filter((m) => !NON_CHAT_MODEL.test(m.id));
 }
 
 // AIPass streams the AI SDK UI-message-chunk protocol.
@@ -97,9 +110,10 @@ Bun.serve({
     const url = new URL(req.url);
 
     if (url.pathname === "/v1/models") {
+      const models = await listModels();
       return Response.json({
         object: "list",
-        data: [{ id: "gemini-3.1-flash-lite", object: "model", owned_by: "aipass" }],
+        data: models.map((m) => ({ id: m.id, object: "model", owned_by: "aipass" })),
       });
     }
 
