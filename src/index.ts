@@ -84,7 +84,10 @@ function normalizeMessages(messages: OpenAIMessage[]) {
       return { role: "assistant", content: `<tool_call>${JSON.stringify({ name: call.function.name, arguments: args })}</tool_call>` };
     }
     if (m.role === "tool") {
-      return { role: "system", content: `Tool result (${m.name ?? m.tool_call_id}): ${m.content}` };
+      return {
+        role: "system",
+        content: `Tool result (${m.name ?? m.tool_call_id}): ${m.content}\n\nUse this result to answer the user's original question directly and naturally. Do not repeat or quote the raw tool result.`,
+      };
     }
     return m;
   });
@@ -233,19 +236,24 @@ function streamChatResponse(upstream: ReadableStream<Uint8Array>, id: string, mo
       const encoder = new TextEncoder();
       const write = (s: string) => controller.enqueue(encoder.encode(s));
 
-      if (tools.length) {
-        let content = "";
-        for await (const delta of parseAipassStream(upstream)) content += delta;
-        const call = extractToolCall(content, tools);
-        if (call) {
-          write(openaiToolCallChunk(id, modelId, call));
+      try {
+        if (tools.length) {
+          let content = "";
+          for await (const delta of parseAipassStream(upstream)) content += delta;
+          const call = extractToolCall(content, tools);
+          if (call) {
+            write(openaiToolCallChunk(id, modelId, call));
+          } else {
+            write(openaiChunk(id, modelId, content, null));
+            write(openaiChunk(id, modelId, "", "stop"));
+          }
         } else {
-          write(openaiChunk(id, modelId, content, null));
+          for await (const delta of parseAipassStream(upstream)) write(openaiChunk(id, modelId, delta, null));
           write(openaiChunk(id, modelId, "", "stop"));
         }
-      } else {
-        for await (const delta of parseAipassStream(upstream)) write(openaiChunk(id, modelId, delta, null));
-        write(openaiChunk(id, modelId, "", "stop"));
+      } catch (err) {
+        console.error("streamChatResponse failed:", err);
+        write(openaiChunk(id, modelId, `\n\n[proxy error] ${err instanceof Error ? err.message : String(err)}`, "stop"));
       }
       write("data: [DONE]\n\n");
       controller.close();
