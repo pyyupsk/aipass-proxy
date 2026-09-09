@@ -1,3 +1,5 @@
+import { parseJsonEventStream, readUIMessageStream, uiMessageChunkSchema } from "ai";
+
 const AIPASS_BASE = "https://de.aipass.net";
 const SESSION_TOKEN = process.env.AIPASS_SESSION_TOKEN;
 const PORT = Number(process.env.PORT ?? 8787);
@@ -57,24 +59,25 @@ async function sendMessage(conversationId: string, modelId: string, messages: Op
   return res.body;
 }
 
-// Parses AIPass's AI-SDK SSE stream into plain text deltas.
+// AIPass streams the AI SDK UI-message-chunk protocol.
 async function* parseAipassStream(stream: ReadableStream<Uint8Array>) {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const payload = line.slice(6);
-      if (payload === "[DONE]") return;
-      const event = JSON.parse(payload);
-      if (event.type === "text-delta") yield event.delta as string;
-    }
+  const chunkStream = parseJsonEventStream({ stream, schema: uiMessageChunkSchema }).pipeThrough(
+    new TransformStream({
+      transform(part, controller) {
+        if (!part.success) throw part.error;
+        controller.enqueue(part.value);
+      },
+    }),
+  );
+
+  let previousText = "";
+  for await (const message of readUIMessageStream({ stream: chunkStream })) {
+    const text = message.parts
+      .filter((p): p is { type: "text"; text: string } => p.type === "text")
+      .map((p) => p.text)
+      .join("");
+    if (text.length > previousText.length) yield text.slice(previousText.length);
+    previousText = text;
   }
 }
 
