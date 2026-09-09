@@ -21,6 +21,16 @@ const baseHeaders = {
 type OpenAIMessage = { role: string; content: string };
 type AipassModel = { id: string; displayName: string };
 
+// Maps a session's first message to its AIPass conversationId, so a whole
+// opencode chat session reuses one AIPass conversation instead of creating a
+// new one per turn. ponytail: unbounded in-memory map, fine for a personal
+// long-running dev proxy; add eviction if this ever runs multi-user.
+const conversationsBySessionKey = new Map<string, string>();
+
+function sessionKey(messages: OpenAIMessage[]) {
+  return JSON.stringify(messages[0]);
+}
+
 function toAipassMessages(messages: OpenAIMessage[]) {
   return messages.map((m) => ({
     id: crypto.randomUUID(),
@@ -128,8 +138,13 @@ Bun.serve({
       const stream = body.stream ?? false;
       const id = crypto.randomUUID();
 
-      const lastUserMessage = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
-      const conversationId = await createConversation(modelId, lastUserMessage);
+      const key = sessionKey(messages);
+      let conversationId = conversationsBySessionKey.get(key);
+      if (!conversationId) {
+        const lastUserMessage = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+        conversationId = await createConversation(modelId, lastUserMessage);
+        conversationsBySessionKey.set(key, conversationId);
+      }
       const upstream = await sendMessage(conversationId, modelId, messages);
 
       if (stream) {
