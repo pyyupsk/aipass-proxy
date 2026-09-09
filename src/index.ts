@@ -2,7 +2,7 @@ import { parseJsonEventStream, readUIMessageStream, uiMessageChunkSchema } from 
 
 const AIPASS_BASE = "https://de.aipass.net";
 const SESSION_TOKEN = process.env.AIPASS_SESSION_TOKEN;
-const PORT = Number(process.env.PORT ?? 8787);
+const PORT = Number(process.env.PORT ?? 47871);
 
 if (!SESSION_TOKEN) {
   throw new Error("AIPASS_SESSION_TOKEN is required (see .env)");
