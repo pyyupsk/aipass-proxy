@@ -4,12 +4,15 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "check": "biome check .",
     "start": "bun run src/index.ts"
   },
   "dependencies": {
-    "ai": "^7.0.94"
+    "ai": "^7.0.94",
+    "zod": "^4.6.1"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.13",
     "@types/bun": "^1.4.2"
   },
   "peerDependencies": {

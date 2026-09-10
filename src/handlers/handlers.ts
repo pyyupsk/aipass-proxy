@@ -1,9 +1,10 @@
 import { createConversation, listModels, parseAipassStream, sendMessage } from "@/client/aipass-client";
 import { errorResponse, openaiChunk, openaiToolCallChunk, textResponse, toolCallResponse } from "@/format/openai-format";
-import type { Result } from "@/utils/result";
-import { conversationsBySessionKey, evictOldestSessionIfFull, sessionKey } from "@/sessions/sessions";
 import { buildToolsPrompt, extractToolCall, safeToEmitLength, TOOL_CALL_OPEN_TAG } from "@/format/tool-call";
-import type { OpenAIMessage, OpenAITool } from "@/types";
+import { conversationsBySessionKey, evictOldestSessionIfFull, sessionKey } from "@/sessions/sessions";
+import type { OpenAITool } from "@/types";
+import { chatCompletionsBodySchema } from "@/types";
+import { type Result, UpstreamError } from "@/utils/result";
 
 async function bufferedChatResponse(upstream: ReadableStream<Uint8Array>, id: string, modelId: string, tools: OpenAITool[]) {
   let content = "";
@@ -93,12 +94,9 @@ export async function handleModels() {
 }
 
 export async function handleChatCompletions(req: Request) {
-  const body = (await req.json()) as {
-    messages: OpenAIMessage[];
-    model?: string;
-    stream?: boolean;
-    tools?: OpenAITool[];
-  };
+  const parsed = chatCompletionsBodySchema.safeParse(await req.json());
+  if (!parsed.success) return errorResponse(new UpstreamError(parsed.error.message, 400));
+  const body = parsed.data;
   const messages = body.messages;
   const modelId = body.model ?? "gemini-3.1-flash-lite";
   const stream = body.stream ?? false;
@@ -120,7 +118,5 @@ export async function handleChatCompletions(req: Request) {
   conversationsBySessionKey.set(key, { conversationId, sentCount: messages.length });
 
   const tools = body.tools ?? [];
-  return stream
-    ? streamChatResponse(upstream, id, modelId, tools)
-    : await bufferedChatResponse(upstream, id, modelId, tools);
+  return stream ? streamChatResponse(upstream, id, modelId, tools) : await bufferedChatResponse(upstream, id, modelId, tools);
 }
