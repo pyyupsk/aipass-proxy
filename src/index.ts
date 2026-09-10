@@ -92,6 +92,19 @@ function sessionKey(messages: OpenAIMessage[]) {
 }
 
 const TOOL_CALL_TAG = /<tool_call>([\s\S]*?)<\/tool_call>/;
+const TOOL_CALL_OPEN_TAG = "<tool_call>";
+
+// While streaming, we can't tell a plain reply from the start of a
+// <tool_call> tag until we've seen enough of it. Emit everything except a
+// trailing fragment that could still turn into the tag opening, so we never
+// leak a partial "<tool_c" onto the wire.
+function safeToEmitLength(buffer: string, tag: string) {
+  const maxOverlap = Math.min(buffer.length, tag.length - 1);
+  for (let len = maxOverlap; len > 0; len--) {
+    if (buffer.endsWith(tag.slice(0, len))) return buffer.length - len;
+  }
+  return buffer.length;
+}
 
 // AIPass's WAF 403s bodies containing 2+ relative-path tokens (./ or ../), which
 // every tool result (ls, git status, diffs) is full of. Break the tokens with a
@@ -300,6 +313,53 @@ async function bufferedChatResponse(upstream: ReadableStream<Uint8Array>, id: st
   return call ? toolCallResponse(id, modelId, call) : textResponse(id, modelId, content);
 }
 
+// Stream plain text through as it arrives; only start buffering once we've
+// actually seen <tool_call> open, so a text-only reply (the common case)
+// still streams instead of waiting for the whole response.
+async function streamWithToolDetection(
+  upstream: ReadableStream<Uint8Array>,
+  id: string,
+  modelId: string,
+  tools: OpenAITool[],
+  write: (s: string) => void,
+) {
+  let pending = "";
+  let toolCallBuffer: string | null = null;
+
+  for await (const delta of parseAipassStream(upstream)) {
+    if (toolCallBuffer !== null) {
+      toolCallBuffer += delta;
+      continue;
+    }
+    pending += delta;
+    const openIdx = pending.indexOf(TOOL_CALL_OPEN_TAG);
+    if (openIdx !== -1) {
+      if (openIdx > 0) write(openaiChunk(id, modelId, pending.slice(0, openIdx), null));
+      toolCallBuffer = pending.slice(openIdx);
+      pending = "";
+      continue;
+    }
+    const safeLen = safeToEmitLength(pending, TOOL_CALL_OPEN_TAG);
+    if (safeLen > 0) {
+      write(openaiChunk(id, modelId, pending.slice(0, safeLen), null));
+      pending = pending.slice(safeLen);
+    }
+  }
+
+  if (toolCallBuffer === null) {
+    if (pending) write(openaiChunk(id, modelId, pending, null));
+    write(openaiChunk(id, modelId, "", "stop"));
+    return;
+  }
+  const call = extractToolCall(toolCallBuffer, tools);
+  if (call) {
+    write(openaiToolCallChunk(id, modelId, call));
+  } else {
+    write(openaiChunk(id, modelId, toolCallBuffer, null));
+    write(openaiChunk(id, modelId, "", "stop"));
+  }
+}
+
 function streamChatResponse(upstream: ReadableStream<Uint8Array>, id: string, modelId: string, tools: OpenAITool[]) {
   const readable = new ReadableStream({
     async start(controller) {
@@ -308,15 +368,7 @@ function streamChatResponse(upstream: ReadableStream<Uint8Array>, id: string, mo
 
       try {
         if (tools.length) {
-          let content = "";
-          for await (const delta of parseAipassStream(upstream)) content += delta;
-          const call = extractToolCall(content, tools);
-          if (call) {
-            write(openaiToolCallChunk(id, modelId, call));
-          } else {
-            write(openaiChunk(id, modelId, content, null));
-            write(openaiChunk(id, modelId, "", "stop"));
-          }
+          await streamWithToolDetection(upstream, id, modelId, tools, write);
         } else {
           for await (const delta of parseAipassStream(upstream)) write(openaiChunk(id, modelId, delta, null));
           write(openaiChunk(id, modelId, "", "stop"));
