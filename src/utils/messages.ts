@@ -1,5 +1,5 @@
-import { sanitizeOutbound } from "./sanitize";
 import type { OpenAIMessage } from "@/types";
+import { sanitizeOutbound } from "./sanitize";
 
 // AIPass has no role:"system"/"tool" and no native tool-calling, so fold
 // both into plain user/assistant text turns AIPass actually understands.
@@ -7,7 +7,10 @@ function normalizeMessages(messages: OpenAIMessage[]) {
   const flattened = messages.map((m): OpenAIMessage => {
     if (m.role === "assistant" && !m.content && m.tool_calls?.length) {
       const content = m.tool_calls
-        .map((call) => `<tool_call>${JSON.stringify({ name: call.function.name, arguments: JSON.parse(call.function.arguments) })}</tool_call>`)
+        .map(
+          (call) =>
+            `<tool_call>${JSON.stringify({ name: call.function.name, arguments: JSON.parse(call.function.arguments) })}</tool_call>`,
+        )
         .join("");
       return { role: "assistant", content };
     }

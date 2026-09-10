@@ -11,8 +11,7 @@ const cookieHeader = `__Secure-ai_passport_auth.session_token=${SESSION_TOKEN}`;
 // Cloudflare blocks requests missing browser-like User-Agent, Referer, and sec-fetch-* headers.
 export const baseHeaders = {
   Cookie: cookieHeader,
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
   Accept: "application/json, text/plain, */*",
   Origin: AIPASS_BASE,
   "sec-fetch-dest": "empty",
