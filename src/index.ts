@@ -83,12 +83,22 @@ async function safeWithRetry<T>(fn: () => Promise<T>): Promise<Result<T>> {
 }
 
 // session key -> {conversationId, sentCount}, so a session reuses one AIPass
-// conversation and only sends new turns. ponytail: unbounded map, add eviction
-// if this ever runs multi-user.
+// conversation and only sends new turns. Capped with FIFO eviction so a
+// long-running proxy doesn't grow unbounded across many client sessions.
+const MAX_SESSIONS = 500;
 const conversationsBySessionKey = new Map<string, { conversationId: string; sentCount: number }>();
 
-function sessionKey(messages: OpenAIMessage[]) {
-  return JSON.stringify(messages[0]);
+function evictOldestSessionIfFull() {
+  if (conversationsBySessionKey.size < MAX_SESSIONS) return;
+  const oldestKey = conversationsBySessionKey.keys().next().value;
+  if (oldestKey !== undefined) conversationsBySessionKey.delete(oldestKey);
+}
+
+// OpenCode sends a stable x-session-id header per session; fall back to
+// hashing the first message for clients that don't (two sessions that
+// happen to open with an identical first message would then collide).
+function sessionKey(req: Request, messages: OpenAIMessage[]) {
+  return req.headers.get("x-session-id") ?? JSON.stringify(messages[0]);
 }
 
 const TOOL_CALL_TAG = /<tool_call>([\s\S]*?)<\/tool_call>/g;
@@ -454,7 +464,7 @@ async function handleChatCompletions(req: Request) {
   const stream = body.stream ?? false;
   const id = crypto.randomUUID();
 
-  const key = sessionKey(messages);
+  const key = sessionKey(req, messages);
   const existing = conversationsBySessionKey.get(key);
   const [conversationId, convErr]: Result<string> = existing
     ? [existing.conversationId, null]
@@ -466,6 +476,7 @@ async function handleChatCompletions(req: Request) {
   const toolsPrompt = body.tools?.length ? [{ role: "system", content: buildToolsPrompt(body.tools) }] : [];
   const [upstream, sendErr] = await sendMessage(conversationId, modelId, [...toolsPrompt, ...newMessages]);
   if (sendErr) return errorResponse(sendErr);
+  if (!existing) evictOldestSessionIfFull();
   conversationsBySessionKey.set(key, { conversationId, sentCount: messages.length });
 
   const tools = body.tools ?? [];
