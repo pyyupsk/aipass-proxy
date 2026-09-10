@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { OpenAIMessage } from "@/types";
 import { toAipassMessages } from "./messages";
 

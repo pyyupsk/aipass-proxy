@@ -6,17 +6,19 @@
   "scripts": {
     "check": "biome check .",
     "start": "bun run src/index.ts",
-    "test": "bun test",
-    "test:coverage": "bun test --coverage --coverage-reporter=lcov",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "ai": "^7.0.94",
+    "ai": "^7.0.97",
     "zod": "^4.6.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.13",
-    "@types/bun": "^1.4.2"
+    "@types/bun": "^1.4.2",
+    "@vitest/coverage-v8": "^5.0.0",
+    "vitest": "^5.0.0"
   },
   "peerDependencies": {
     "typescript": "^7.0.2"

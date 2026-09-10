@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { UpstreamError } from "@/utils/result";
 import { errorResponse, openaiChunk, openaiToolCallChunk, textResponse, toolCallResponse, toUpstreamError } from "./openai-format";
 

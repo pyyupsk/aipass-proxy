@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { OpenAITool } from "@/types";
 import { extractToolCall, safeToEmitLength, TOOL_CALL_OPEN_TAG } from "./tool-call";
 
