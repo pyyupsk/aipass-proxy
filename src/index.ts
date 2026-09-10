@@ -33,6 +33,34 @@ type OpenAIMessage = {
 type OpenAITool = { type: "function"; function: { name: string; description?: string; parameters?: unknown } };
 type AipassModel = { id: string; displayName: string };
 
+class UpstreamError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+type Result<T> = [T, null] | [null, UpstreamError];
+
+// Business logic never throws to its callers: functions that talk to AIPass
+// return a Result tuple. safe() is the one place that turns a thrown
+// UpstreamError (or a raw fetch/JSON exception) into that tuple.
+async function safe<T>(fn: () => Promise<T>): Promise<Result<T>> {
+  try {
+    return [await fn(), null];
+  } catch (err) {
+    if (err instanceof UpstreamError) return [null, err];
+    return [null, new UpstreamError(err instanceof Error ? err.message : String(err), 502)];
+  }
+}
+
+async function upstreamText(res: Response) {
+  const text = await res.text();
+  return text.length > 300 ? `${text.slice(0, 300)}…` : text;
+}
+
 // session key -> {conversationId, sentCount}, so a session reuses one AIPass
 // conversation and only sends new turns. ponytail: unbounded map, add eviction
 // if this ever runs multi-user.
@@ -127,47 +155,57 @@ function toAipassMessages(messages: OpenAIMessage[]) {
   }));
 }
 
-async function createConversation(modelId: string, firstMessage: string) {
-  const res = await fetch(`${AIPASS_BASE}/chat.data`, {
-    method: "POST",
-    headers: { ...baseHeaders, "Content-Type": "application/x-www-form-urlencoded", Referer: `${AIPASS_BASE}/chat` },
-    body: new URLSearchParams({
-      message: sanitizeOutbound(firstMessage),
-      folderId: "",
-      modelId,
-      intent: "create-conversation",
-      clientCreateRequestId: crypto.randomUUID(),
-    }),
-  });
-  if (!res.ok) throw new Error(`chat.data failed: ${res.status} ${await res.text()}`);
+async function createConversation(modelId: string, firstMessage: string): Promise<Result<string>> {
+  return safe(async () => {
+    const res = await fetch(`${AIPASS_BASE}/chat.data`, {
+      method: "POST",
+      headers: { ...baseHeaders, "Content-Type": "application/x-www-form-urlencoded", Referer: `${AIPASS_BASE}/chat` },
+      body: new URLSearchParams({
+        message: sanitizeOutbound(firstMessage),
+        folderId: "",
+        modelId,
+        intent: "create-conversation",
+        clientCreateRequestId: crypto.randomUUID(),
+      }),
+    });
+    if (!res.ok) throw new UpstreamError(`chat.data failed: ${await upstreamText(res)}`, res.status);
 
-  const body = (await res.json()) as unknown[];
-  const idx = body.indexOf("conversationId");
-  const conversationId = idx >= 0 ? body[idx + 1] : undefined;
-  if (typeof conversationId !== "string") {
-    throw new TypeError(`could not find conversationId in response: ${JSON.stringify(body)}`);
-  }
-  return conversationId;
+    const body = (await res.json()) as unknown[];
+    const idx = body.indexOf("conversationId");
+    const conversationId = idx >= 0 ? body[idx + 1] : undefined;
+    if (typeof conversationId !== "string") {
+      throw new UpstreamError(`could not find conversationId in response: ${JSON.stringify(body)}`, 502);
+    }
+    return conversationId;
+  });
 }
 
-async function sendMessage(conversationId: string, modelId: string, messages: OpenAIMessage[]) {
-  const res = await fetch(`${AIPASS_BASE}/actions/send-message/${conversationId}`, {
-    method: "POST",
-    headers: { ...baseHeaders, "Content-Type": "application/json", Referer: `${AIPASS_BASE}/chat/${conversationId}` },
-    body: JSON.stringify({ modelId, messages: toAipassMessages(messages) }),
+async function sendMessage(
+  conversationId: string,
+  modelId: string,
+  messages: OpenAIMessage[],
+): Promise<Result<ReadableStream<Uint8Array>>> {
+  return safe(async () => {
+    const res = await fetch(`${AIPASS_BASE}/actions/send-message/${conversationId}`, {
+      method: "POST",
+      headers: { ...baseHeaders, "Content-Type": "application/json", Referer: `${AIPASS_BASE}/chat/${conversationId}` },
+      body: JSON.stringify({ modelId, messages: toAipassMessages(messages) }),
+    });
+    if (!res.ok || !res.body) throw new UpstreamError(`send-message failed: ${await upstreamText(res)}`, res.status);
+    return res.body;
   });
-  if (!res.ok || !res.body) throw new Error(`send-message failed: ${res.status} ${await res.text()}`);
-  return res.body;
 }
 
 // Media-generation models AIPass exposes that opencode can't use as a chat model.
 const NON_CHAT_MODEL = /image|seedance|seedream|veo-|lyria|deep-research/i;
 
-async function listModels() {
-  const res = await fetch(`${AIPASS_BASE}/loaders/list-models`, { headers: baseHeaders });
-  if (!res.ok) throw new Error(`list-models failed: ${res.status} ${await res.text()}`);
-  const body = (await res.json()) as { data: AipassModel[] };
-  return body.data.filter((m) => !NON_CHAT_MODEL.test(m.id));
+async function listModels(): Promise<Result<AipassModel[]>> {
+  return safe(async () => {
+    const res = await fetch(`${AIPASS_BASE}/loaders/list-models`, { headers: baseHeaders });
+    if (!res.ok) throw new UpstreamError(`list-models failed: ${await upstreamText(res)}`, res.status);
+    const body = (await res.json()) as { data: AipassModel[] };
+    return body.data.filter((m) => !NON_CHAT_MODEL.test(m.id));
+  });
 }
 
 // AIPass streams the AI SDK UI-message-chunk protocol.
@@ -293,54 +331,69 @@ function openaiToolCallChunk(id: string, model: string, call: { name: string; ar
   );
 }
 
+// OpenAI-shaped error envelope so OpenCode surfaces the real upstream status
+// and reason instead of a bare "Internal Server Error".
+function errorResponse(err: UpstreamError) {
+  console.error(`upstream error (${err.status}):`, err.message);
+  const status = err.status >= 400 && err.status < 600 ? err.status : 502;
+  return Response.json({ error: { message: err.message, type: "upstream_error", code: err.status } }, { status });
+}
+
 Bun.serve({
   port: PORT,
   async fetch(req) {
-    const url = new URL(req.url);
+    try {
+      const url = new URL(req.url);
 
-    if (url.pathname === "/v1/models") {
-      const models = await listModels();
-      return Response.json({
-        object: "list",
-        data: models.map((m) => ({ id: m.id, object: "model", owned_by: "aipass" })),
-      });
+      if (url.pathname === "/v1/models") {
+        const [models, err] = await listModels();
+        if (err) return errorResponse(err);
+        return Response.json({
+          object: "list",
+          data: models.map((m) => ({ id: m.id, object: "model", owned_by: "aipass" })),
+        });
+      }
+
+      if (url.pathname === "/v1/chat/completions" && req.method === "POST") {
+        const body = (await req.json()) as {
+          messages: OpenAIMessage[];
+          model?: string;
+          stream?: boolean;
+          tools?: OpenAITool[];
+        };
+        const messages = body.messages;
+        const modelId = body.model ?? "gemini-3.1-flash-lite";
+        const stream = body.stream ?? false;
+        const id = crypto.randomUUID();
+
+        const key = sessionKey(messages);
+        const existing = conversationsBySessionKey.get(key);
+        const isNewSession = !existing;
+        const [conversationId, convErr]: Result<string> = existing
+          ? [existing.conversationId, null]
+          : await createConversation(modelId, [...messages].reverse().find((m) => m.role === "user")?.content ?? "");
+        if (convErr) return errorResponse(convErr);
+
+        const sliced = messages.slice(existing?.sentCount ?? 0);
+        const newMessages = sliced.length > 0 ? sliced : messages;
+        const toolsPrompt =
+          isNewSession && body.tools?.length ? [{ role: "system", content: buildToolsPrompt(body.tools) }] : [];
+        const [upstream, sendErr] = await sendMessage(conversationId, modelId, [...toolsPrompt, ...newMessages]);
+        if (sendErr) return errorResponse(sendErr);
+        conversationsBySessionKey.set(key, { conversationId, sentCount: messages.length });
+
+        const tools = body.tools ?? [];
+        return stream
+          ? streamChatResponse(upstream, id, modelId, tools)
+          : await bufferedChatResponse(upstream, id, modelId, tools);
+      }
+
+      return new Response("Not found", { status: 404 });
+    } catch (err) {
+      return errorResponse(
+        err instanceof UpstreamError ? err : new UpstreamError(err instanceof Error ? err.message : String(err), 500),
+      );
     }
-
-    if (url.pathname === "/v1/chat/completions" && req.method === "POST") {
-      const body = (await req.json()) as {
-        messages: OpenAIMessage[];
-        model?: string;
-        stream?: boolean;
-        tools?: OpenAITool[];
-      };
-      const messages = body.messages;
-      const modelId = body.model ?? "gemini-3.1-flash-lite";
-      const stream = body.stream ?? false;
-      const id = crypto.randomUUID();
-
-      const key = sessionKey(messages);
-      const existing = conversationsBySessionKey.get(key);
-      const isNewSession = !existing;
-      const conversationId =
-        existing?.conversationId ??
-        (await createConversation(
-          modelId,
-          [...messages].reverse().find((m) => m.role === "user")?.content ?? "",
-        ));
-      const sliced = messages.slice(existing?.sentCount ?? 0);
-      const newMessages = sliced.length > 0 ? sliced : messages;
-      const toolsPrompt =
-        isNewSession && body.tools?.length ? [{ role: "system", content: buildToolsPrompt(body.tools) }] : [];
-      const upstream = await sendMessage(conversationId, modelId, [...toolsPrompt, ...newMessages]);
-      conversationsBySessionKey.set(key, { conversationId, sentCount: messages.length });
-
-      const tools = body.tools ?? [];
-      return stream
-        ? streamChatResponse(upstream, id, modelId, tools)
-        : await bufferedChatResponse(upstream, id, modelId, tools);
-    }
-
-    return new Response("Not found", { status: 404 });
   },
 });
 
