@@ -6,6 +6,8 @@
   "scripts": {
     "check": "biome check .",
     "start": "bun run src/index.ts",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage --coverage-reporter=lcov",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
