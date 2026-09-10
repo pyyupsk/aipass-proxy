@@ -61,6 +61,27 @@ async function upstreamText(res: Response) {
   return text.length > 300 ? `${text.slice(0, 300)}…` : text;
 }
 
+// 403 from AIPass is the WAF traversal block: deterministic, retrying just
+// triples latency for a guaranteed failure. Only retry what's actually
+// transient (rate limiting, upstream 5xx, network/timeout).
+function isRetryable(err: UpstreamError) {
+  return err.status === 429 || err.status >= 500;
+}
+
+const RETRY_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 500;
+const RETRY_MAX_DELAY_MS = 4000;
+
+async function safeWithRetry<T>(fn: () => Promise<T>): Promise<Result<T>> {
+  let result = await safe(fn);
+  for (let attempt = 1; attempt < RETRY_ATTEMPTS && result[1] && isRetryable(result[1]); attempt++) {
+    const delay = Math.random() * Math.min(RETRY_MAX_DELAY_MS, RETRY_BASE_DELAY_MS * 2 ** (attempt - 1)); // NOSONAR: jitter timing, not security-sensitive
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    result = await safe(fn);
+  }
+  return result;
+}
+
 // session key -> {conversationId, sentCount}, so a session reuses one AIPass
 // conversation and only sends new turns. ponytail: unbounded map, add eviction
 // if this ever runs multi-user.
@@ -156,7 +177,7 @@ function toAipassMessages(messages: OpenAIMessage[]) {
 }
 
 async function createConversation(modelId: string, firstMessage: string): Promise<Result<string>> {
-  return safe(async () => {
+  return safeWithRetry(async () => {
     const res = await fetch(`${AIPASS_BASE}/chat.data`, {
       method: "POST",
       headers: { ...baseHeaders, "Content-Type": "application/x-www-form-urlencoded", Referer: `${AIPASS_BASE}/chat` },
@@ -185,7 +206,7 @@ async function sendMessage(
   modelId: string,
   messages: OpenAIMessage[],
 ): Promise<Result<ReadableStream<Uint8Array>>> {
-  return safe(async () => {
+  return safeWithRetry(async () => {
     const res = await fetch(`${AIPASS_BASE}/actions/send-message/${conversationId}`, {
       method: "POST",
       headers: { ...baseHeaders, "Content-Type": "application/json", Referer: `${AIPASS_BASE}/chat/${conversationId}` },
@@ -200,7 +221,7 @@ async function sendMessage(
 const NON_CHAT_MODEL = /image|seedance|seedream|veo-|lyria|deep-research/i;
 
 async function listModels(): Promise<Result<AipassModel[]>> {
-  return safe(async () => {
+  return safeWithRetry(async () => {
     const res = await fetch(`${AIPASS_BASE}/loaders/list-models`, { headers: baseHeaders });
     if (!res.ok) throw new UpstreamError(`list-models failed: ${await upstreamText(res)}`, res.status);
     const body = (await res.json()) as { data: AipassModel[] };
@@ -339,60 +360,64 @@ function errorResponse(err: UpstreamError) {
   return Response.json({ error: { message: err.message, type: "upstream_error", code: err.status } }, { status });
 }
 
+function toUpstreamError(err: unknown): UpstreamError {
+  if (err instanceof UpstreamError) return err;
+  return new UpstreamError(err instanceof Error ? err.message : String(err), 500);
+}
+
+async function handleModels() {
+  const [models, err] = await listModels();
+  if (err) return errorResponse(err);
+  return Response.json({
+    object: "list",
+    data: models.map((m) => ({ id: m.id, object: "model", owned_by: "aipass" })),
+  });
+}
+
+async function handleChatCompletions(req: Request) {
+  const body = (await req.json()) as {
+    messages: OpenAIMessage[];
+    model?: string;
+    stream?: boolean;
+    tools?: OpenAITool[];
+  };
+  const messages = body.messages;
+  const modelId = body.model ?? "gemini-3.1-flash-lite";
+  const stream = body.stream ?? false;
+  const id = crypto.randomUUID();
+
+  const key = sessionKey(messages);
+  const existing = conversationsBySessionKey.get(key);
+  const isNewSession = !existing;
+  const [conversationId, convErr]: Result<string> = existing
+    ? [existing.conversationId, null]
+    : await createConversation(modelId, [...messages].reverse().find((m) => m.role === "user")?.content ?? "");
+  if (convErr) return errorResponse(convErr);
+
+  const sliced = messages.slice(existing?.sentCount ?? 0);
+  const newMessages = sliced.length > 0 ? sliced : messages;
+  const toolsPrompt =
+    isNewSession && body.tools?.length ? [{ role: "system", content: buildToolsPrompt(body.tools) }] : [];
+  const [upstream, sendErr] = await sendMessage(conversationId, modelId, [...toolsPrompt, ...newMessages]);
+  if (sendErr) return errorResponse(sendErr);
+  conversationsBySessionKey.set(key, { conversationId, sentCount: messages.length });
+
+  const tools = body.tools ?? [];
+  return stream
+    ? streamChatResponse(upstream, id, modelId, tools)
+    : await bufferedChatResponse(upstream, id, modelId, tools);
+}
+
 Bun.serve({
   port: PORT,
   async fetch(req) {
     try {
       const url = new URL(req.url);
-
-      if (url.pathname === "/v1/models") {
-        const [models, err] = await listModels();
-        if (err) return errorResponse(err);
-        return Response.json({
-          object: "list",
-          data: models.map((m) => ({ id: m.id, object: "model", owned_by: "aipass" })),
-        });
-      }
-
-      if (url.pathname === "/v1/chat/completions" && req.method === "POST") {
-        const body = (await req.json()) as {
-          messages: OpenAIMessage[];
-          model?: string;
-          stream?: boolean;
-          tools?: OpenAITool[];
-        };
-        const messages = body.messages;
-        const modelId = body.model ?? "gemini-3.1-flash-lite";
-        const stream = body.stream ?? false;
-        const id = crypto.randomUUID();
-
-        const key = sessionKey(messages);
-        const existing = conversationsBySessionKey.get(key);
-        const isNewSession = !existing;
-        const [conversationId, convErr]: Result<string> = existing
-          ? [existing.conversationId, null]
-          : await createConversation(modelId, [...messages].reverse().find((m) => m.role === "user")?.content ?? "");
-        if (convErr) return errorResponse(convErr);
-
-        const sliced = messages.slice(existing?.sentCount ?? 0);
-        const newMessages = sliced.length > 0 ? sliced : messages;
-        const toolsPrompt =
-          isNewSession && body.tools?.length ? [{ role: "system", content: buildToolsPrompt(body.tools) }] : [];
-        const [upstream, sendErr] = await sendMessage(conversationId, modelId, [...toolsPrompt, ...newMessages]);
-        if (sendErr) return errorResponse(sendErr);
-        conversationsBySessionKey.set(key, { conversationId, sentCount: messages.length });
-
-        const tools = body.tools ?? [];
-        return stream
-          ? streamChatResponse(upstream, id, modelId, tools)
-          : await bufferedChatResponse(upstream, id, modelId, tools);
-      }
-
+      if (url.pathname === "/v1/models") return await handleModels();
+      if (url.pathname === "/v1/chat/completions" && req.method === "POST") return await handleChatCompletions(req);
       return new Response("Not found", { status: 404 });
     } catch (err) {
-      return errorResponse(
-        err instanceof UpstreamError ? err : new UpstreamError(err instanceof Error ? err.message : String(err), 500),
-      );
+      return errorResponse(toUpstreamError(err));
     }
   },
 });
