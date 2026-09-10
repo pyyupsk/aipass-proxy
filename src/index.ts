@@ -1,6 +1,6 @@
 import { PORT } from "./config";
-import { handleChatCompletions, handleModels } from "./handlers/handlers";
-import { errorResponse, toUpstreamError } from "./format/openai-format";
+import { handleChatCompletions, handleModels } from "@/handlers/handlers";
+import { errorResponse, toUpstreamError } from "@/format/openai-format";
 
 Bun.serve({
   port: PORT,

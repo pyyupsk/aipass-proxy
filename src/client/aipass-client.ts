@@ -1,9 +1,9 @@
 import { parseJsonEventStream, readUIMessageStream, uiMessageChunkSchema } from "ai";
-import { AIPASS_BASE, baseHeaders } from "../config";
-import { toAipassMessages } from "../utils/messages";
-import { type Result, safeWithRetry, UpstreamError, upstreamText } from "../utils/result";
-import { sanitizeOutbound, stripZeroWidthSpace } from "../utils/sanitize";
-import type { AipassModel, OpenAIMessage } from "../types";
+import { AIPASS_BASE, baseHeaders } from "@/config";
+import { toAipassMessages } from "@/utils/messages";
+import { type Result, safeWithRetry, UpstreamError, upstreamText } from "@/utils/result";
+import { sanitizeOutbound, stripZeroWidthSpace } from "@/utils/sanitize";
+import type { AipassModel, OpenAIMessage } from "@/types";
 
 export async function createConversation(modelId: string, firstMessage: string): Promise<Result<string>> {
   return safeWithRetry(async () => {

@@ -24,6 +24,10 @@ src/
     messages.ts           # message transform helpers
 ```
 
+## Imports
+
+Cross-folder imports use the `@/` alias (maps to `src/`); same-folder imports use `./`.
+
 ## Run
 
 ```sh

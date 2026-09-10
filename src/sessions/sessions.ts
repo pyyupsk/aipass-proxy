@@ -1,4 +1,4 @@
-import type { OpenAIMessage } from "../types";
+import type { OpenAIMessage } from "@/types";
 
 // session key -> {conversationId, sentCount}, so a session reuses one AIPass
 // conversation and only sends new turns. Capped with FIFO eviction so a

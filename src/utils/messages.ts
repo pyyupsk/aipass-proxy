@@ -1,5 +1,5 @@
 import { sanitizeOutbound } from "./sanitize";
-import type { OpenAIMessage } from "../types";
+import type { OpenAIMessage } from "@/types";
 
 // AIPass has no role:"system"/"tool" and no native tool-calling, so fold
 // both into plain user/assistant text turns AIPass actually understands.
