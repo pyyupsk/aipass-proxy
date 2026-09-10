@@ -1,9 +1,9 @@
-import { createConversation, listModels, parseAipassStream, sendMessage } from "./aipass-client";
-import { errorResponse, openaiChunk, openaiToolCallChunk, textResponse, toolCallResponse } from "./openai-format";
-import type { Result } from "./result";
-import { conversationsBySessionKey, evictOldestSessionIfFull, sessionKey } from "./sessions";
-import { buildToolsPrompt, extractToolCall, safeToEmitLength, TOOL_CALL_OPEN_TAG } from "./tool-call";
-import type { OpenAIMessage, OpenAITool } from "./types";
+import { createConversation, listModels, parseAipassStream, sendMessage } from "../client/aipass-client";
+import { errorResponse, openaiChunk, openaiToolCallChunk, textResponse, toolCallResponse } from "../format/openai-format";
+import type { Result } from "../utils/result";
+import { conversationsBySessionKey, evictOldestSessionIfFull, sessionKey } from "../sessions/sessions";
+import { buildToolsPrompt, extractToolCall, safeToEmitLength, TOOL_CALL_OPEN_TAG } from "../format/tool-call";
+import type { OpenAIMessage, OpenAITool } from "../types";
 
 async function bufferedChatResponse(upstream: ReadableStream<Uint8Array>, id: string, modelId: string, tools: OpenAITool[]) {
   let content = "";

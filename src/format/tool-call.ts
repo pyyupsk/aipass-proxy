@@ -1,4 +1,4 @@
-import type { OpenAITool } from "./types";
+import type { OpenAITool } from "../types";
 
 export const TOOL_CALL_TAG = /<tool_call>([\s\S]*?)<\/tool_call>/g;
 export const TOOL_CALL_OPEN_TAG = "<tool_call>";

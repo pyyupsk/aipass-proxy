@@ -1,4 +1,4 @@
-import { UpstreamError } from "./result";
+import { UpstreamError } from "../utils/result";
 
 export function openaiChunk(id: string, model: string, delta: string, finishReason: string | null) {
   return `data: ${JSON.stringify({
