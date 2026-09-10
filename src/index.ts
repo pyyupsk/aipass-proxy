@@ -91,7 +91,7 @@ function sessionKey(messages: OpenAIMessage[]) {
   return JSON.stringify(messages[0]);
 }
 
-const TOOL_CALL_TAG = /<tool_call>([\s\S]*?)<\/tool_call>/;
+const TOOL_CALL_TAG = /<tool_call>([\s\S]*?)<\/tool_call>/g;
 const TOOL_CALL_OPEN_TAG = "<tool_call>";
 
 // While streaming, we can't tell a plain reply from the start of a
@@ -125,34 +125,41 @@ function buildToolsPrompt(tools: OpenAITool[]) {
     `To call one, respond with ONLY this and nothing else, replacing "name" with the exact tool name ` +
     `(e.g. "${example}") and "arguments" with an object matching that tool's arguments schema:\n` +
     `<tool_call>{"name": "${example}", "arguments": {...}}</tool_call>\n` +
-    `Never omit the "name" and "arguments" keys. Call at most one tool per reply. If no tool is needed, just answer normally.`
+    `Never omit the "name" and "arguments" keys. To call multiple tools in one reply, emit one ` +
+    `<tool_call>...</tool_call> tag per call, back to back. If no tool is needed, just answer normally.`
   );
 }
 
-function extractToolCall(text: string, tools: OpenAITool[]): { name: string; arguments: unknown } | null {
-  const match = TOOL_CALL_TAG.exec(text);
-  if (!match?.[1]) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(match[1]);
-  } catch {
-    return null;
+function extractToolCall(text: string, tools: OpenAITool[]): { name: string; arguments: unknown }[] {
+  const calls: { name: string; arguments: unknown }[] = [];
+  for (const match of text.matchAll(TOOL_CALL_TAG)) {
+    if (!match[1]) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(match[1]);
+    } catch {
+      continue;
+    }
+    if (typeof parsed !== "object" || parsed === null) continue;
+    if ("name" in parsed && "arguments" in parsed) {
+      calls.push(parsed as { name: string; arguments: unknown });
+    } else if (tools.length === 1 && tools[0]) {
+      // Model sometimes emits bare arguments instead of the {name, arguments} envelope.
+      calls.push({ name: tools[0].function.name, arguments: parsed });
+    }
   }
-  if (typeof parsed !== "object" || parsed === null) return null;
-  if ("name" in parsed && "arguments" in parsed) return parsed as { name: string; arguments: unknown };
-  // Model sometimes emits bare arguments instead of the {name, arguments} envelope.
-  if (tools.length === 1 && tools[0]) return { name: tools[0].function.name, arguments: parsed };
-  return null;
+  return calls;
 }
 
 // AIPass has no role:"system"/"tool" and no native tool-calling, so fold
 // both into plain user/assistant text turns AIPass actually understands.
 function normalizeMessages(messages: OpenAIMessage[]) {
   const flattened = messages.map((m): OpenAIMessage => {
-    if (m.role === "assistant" && !m.content && m.tool_calls?.[0]) {
-      const call = m.tool_calls[0];
-      const args = JSON.parse(call.function.arguments);
-      return { role: "assistant", content: `<tool_call>${JSON.stringify({ name: call.function.name, arguments: args })}</tool_call>` };
+    if (m.role === "assistant" && !m.content && m.tool_calls?.length) {
+      const content = m.tool_calls
+        .map((call) => `<tool_call>${JSON.stringify({ name: call.function.name, arguments: JSON.parse(call.function.arguments) })}</tool_call>`)
+        .join("");
+      return { role: "assistant", content };
     }
     if (m.role === "tool") {
       return {
@@ -276,7 +283,7 @@ function openaiChunk(id: string, model: string, delta: string, finishReason: str
   })}\n\n`;
 }
 
-function toolCallResponse(id: string, modelId: string, call: { name: string; arguments: unknown }) {
+function toolCallResponse(id: string, modelId: string, calls: { name: string; arguments: unknown }[]) {
   return Response.json({
     id,
     object: "chat.completion",
@@ -288,7 +295,11 @@ function toolCallResponse(id: string, modelId: string, call: { name: string; arg
         message: {
           role: "assistant",
           content: null,
-          tool_calls: [{ id: crypto.randomUUID(), type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) } }],
+          tool_calls: calls.map((call) => ({
+            id: crypto.randomUUID(),
+            type: "function",
+            function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+          })),
         },
         finish_reason: "tool_calls",
       },
@@ -309,8 +320,8 @@ function textResponse(id: string, modelId: string, content: string) {
 async function bufferedChatResponse(upstream: ReadableStream<Uint8Array>, id: string, modelId: string, tools: OpenAITool[]) {
   let content = "";
   for await (const delta of parseAipassStream(upstream)) content += delta;
-  const call = tools.length ? extractToolCall(content, tools) : null;
-  return call ? toolCallResponse(id, modelId, call) : textResponse(id, modelId, content);
+  const calls = tools.length ? extractToolCall(content, tools) : [];
+  return calls.length ? toolCallResponse(id, modelId, calls) : textResponse(id, modelId, content);
 }
 
 // Stream plain text through as it arrives; only start buffering once we've
@@ -351,9 +362,9 @@ async function streamWithToolDetection(
     write(openaiChunk(id, modelId, "", "stop"));
     return;
   }
-  const call = extractToolCall(toolCallBuffer, tools);
-  if (call) {
-    write(openaiToolCallChunk(id, modelId, call));
+  const calls = extractToolCall(toolCallBuffer, tools);
+  if (calls.length) {
+    write(openaiToolCallChunk(id, modelId, calls));
   } else {
     write(openaiChunk(id, modelId, toolCallBuffer, null));
     write(openaiChunk(id, modelId, "", "stop"));
@@ -384,15 +395,20 @@ function streamChatResponse(upstream: ReadableStream<Uint8Array>, id: string, mo
   return new Response(readable, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
 }
 
-function openaiToolCallChunk(id: string, model: string, call: { name: string; arguments: unknown }) {
-  const toolCall = { id: crypto.randomUUID(), type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) } };
+function openaiToolCallChunk(id: string, model: string, calls: { name: string; arguments: unknown }[]) {
+  const toolCalls = calls.map((call, index) => ({
+    index,
+    id: crypto.randomUUID(),
+    type: "function",
+    function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+  }));
   return (
     `data: ${JSON.stringify({
       id,
       object: "chat.completion.chunk",
       created: Math.floor(Date.now() / 1000),
       model,
-      choices: [{ index: 0, delta: { tool_calls: [{ index: 0, ...toolCall }] }, finish_reason: null }],
+      choices: [{ index: 0, delta: { tool_calls: toolCalls }, finish_reason: null }],
     })}\n\n` +
     `data: ${JSON.stringify({
       id,
@@ -440,7 +456,6 @@ async function handleChatCompletions(req: Request) {
 
   const key = sessionKey(messages);
   const existing = conversationsBySessionKey.get(key);
-  const isNewSession = !existing;
   const [conversationId, convErr]: Result<string> = existing
     ? [existing.conversationId, null]
     : await createConversation(modelId, [...messages].reverse().find((m) => m.role === "user")?.content ?? "");
@@ -448,8 +463,7 @@ async function handleChatCompletions(req: Request) {
 
   const sliced = messages.slice(existing?.sentCount ?? 0);
   const newMessages = sliced.length > 0 ? sliced : messages;
-  const toolsPrompt =
-    isNewSession && body.tools?.length ? [{ role: "system", content: buildToolsPrompt(body.tools) }] : [];
+  const toolsPrompt = body.tools?.length ? [{ role: "system", content: buildToolsPrompt(body.tools) }] : [];
   const [upstream, sendErr] = await sendMessage(conversationId, modelId, [...toolsPrompt, ...newMessages]);
   if (sendErr) return errorResponse(sendErr);
   conversationsBySessionKey.set(key, { conversationId, sentCount: messages.length });
