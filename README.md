@@ -45,19 +45,14 @@ curl -sL https://raw.githubusercontent.com/pyyupsk/aipass-proxy/main/install.sh 
 Detects your OS/arch and installs to `~/.local/bin` (override with `INSTALL_DIR=...`). Or download manually from [Releases](https://github.com/pyyupsk/aipass-proxy/releases/latest): `aipass-proxy-linux-x64`, `aipass-proxy-linux-arm64`, `aipass-proxy-darwin-x64`, `aipass-proxy-darwin-arm64`.
 
 ```sh
-./aipass-proxy setup   # prompts for AIPASS_SESSION_TOKEN and PORT, writes ~/.config/aipass-proxy/.env (chmod 600)
-./aipass-proxy start
+./aipass-proxy setup            # prompts for AIPASS_SESSION_TOKEN and PORT, writes ~/.config/aipass-proxy/.env (chmod 600)
+./aipass-proxy start            # run it in the foreground
+./aipass-proxy install-service  # or, one-time: install it as a background service
 ```
 
 `AIPASS_SESSION_TOKEN` is the `__Secure-ai_passport_auth.session_token` cookie value from an authenticated AIPass browser session.
 
-### Run as a background service
-
-```sh
-./aipass-proxy install-service
-```
-
-Generates a systemd user unit (Linux) or launchd agent (macOS) that runs the binary's `start` command from the current directory, then prints the command to enable it (`systemctl --user enable --now aipass-proxy` / `launchctl load ...`).
+`install-service` generates a systemd user unit (Linux) or launchd agent (macOS) that runs the binary's `start` command from the current directory, then prints the command to enable it (`systemctl --user enable --now aipass-proxy` / `launchctl load ...`). Once enabled it starts on login and restarts on failure — no need to run `aipass-proxy start` manually.
 
 ## Running from source
 

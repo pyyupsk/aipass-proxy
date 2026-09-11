@@ -4,6 +4,15 @@ set -euo pipefail
 REPO="pyyupsk/aipass-proxy"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 
+if [ -t 1 ]; then
+  bold=$(tput bold) dim=$(tput dim) green=$(tput setaf 2) reset=$(tput sgr0)
+else
+  bold="" dim="" green="" reset=""
+fi
+
+info() { echo "${dim}==>${reset} $1"; }
+ok() { echo "${green}✓${reset} $1"; }
+
 os=$(uname -s)
 arch=$(uname -m)
 
@@ -22,14 +31,23 @@ esac
 asset="aipass-proxy-${platform}-${platform_arch}"
 url="https://github.com/${REPO}/releases/latest/download/${asset}"
 
+info "Detected platform: ${bold}${platform}-${platform_arch}${reset}"
+info "Downloading ${asset}..."
 mkdir -p "$INSTALL_DIR"
-echo "Downloading $asset..."
-curl -sL -o "$INSTALL_DIR/aipass-proxy" "$url"
+curl -#L -o "$INSTALL_DIR/aipass-proxy" "$url"
 chmod +x "$INSTALL_DIR/aipass-proxy"
+ok "Installed to ${bold}$INSTALL_DIR/aipass-proxy${reset}"
 
-echo "Installed to $INSTALL_DIR/aipass-proxy"
+echo
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
-  *) echo "Add it to your PATH: export PATH=\"$INSTALL_DIR:\$PATH\"" ;;
+  *)
+    echo "${bold}Add it to your PATH:${reset}"
+    echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
+    echo
+    ;;
 esac
-echo "Next: aipass-proxy setup && aipass-proxy start"
+echo "${bold}Next steps:${reset}"
+echo "  aipass-proxy setup"
+echo "  aipass-proxy start             # run it in the foreground"
+echo "  aipass-proxy install-service   # or, one-time: run it in the background, starts on login"
