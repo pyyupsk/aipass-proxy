@@ -1,6 +1,8 @@
-import { errorResponse, toUpstreamError } from "@/format/openai-format";
-import { handleChatCompletions, handleModels } from "@/handlers/handlers";
-import { PORT } from "./config";
+import { toUpstreamError } from "@/lib/safe";
+import { errorResponse } from "@/openai/transform";
+import { handleChatCompletions } from "@/routes/chat-completions";
+import { handleModels } from "@/routes/models";
+import { PORT } from "./env";
 
 export function startServer() {
   Bun.serve({

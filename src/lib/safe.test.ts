@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { safe, safeWithRetry, UpstreamError, upstreamText } from "./result";
+import { safe, safeWithRetry, toUpstreamError, UpstreamError, upstreamText } from "./safe";
 
 describe("safe", () => {
   test("wraps a successful call as [value, null]", async () => {
@@ -73,4 +73,24 @@ describe("safeWithRetry", () => {
     expect(calls).toBe(3);
     expect(result).toEqual(["recovered", null]);
   }, 10000);
+});
+
+describe("toUpstreamError", () => {
+  test("passes an existing UpstreamError through unchanged", () => {
+    const err = new UpstreamError("boom", 429);
+    expect(toUpstreamError(err)).toBe(err);
+  });
+
+  test("wraps a plain Error as a 500 UpstreamError", () => {
+    const wrapped = toUpstreamError(new Error("oops"));
+    expect(wrapped).toBeInstanceOf(UpstreamError);
+    expect(wrapped.status).toBe(500);
+    expect(wrapped.message).toBe("oops");
+  });
+
+  test("wraps a non-Error thrown value as a 500 UpstreamError", () => {
+    const wrapped = toUpstreamError("string throw");
+    expect(wrapped.status).toBe(500);
+    expect(wrapped.message).toBe('"string throw"');
+  });
 });

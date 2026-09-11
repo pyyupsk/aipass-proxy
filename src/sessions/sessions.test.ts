@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
-import type { OpenAIMessage } from "@/types";
+import type { OpenAIMessage } from "@/openai/types";
 import { conversationsBySessionKey, evictOldestSessionIfFull, sessionKey } from "./sessions";
 
 afterEach(() => {

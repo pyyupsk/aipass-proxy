@@ -1,9 +1,29 @@
 import { parseJsonEventStream, readUIMessageStream, uiMessageChunkSchema } from "ai";
-import { AIPASS_BASE, baseHeaders } from "@/config";
-import type { AipassModel, OpenAIMessage } from "@/types";
-import { toAipassMessages } from "@/utils/messages";
-import { type Result, safeWithRetry, UpstreamError, upstreamText } from "@/utils/result";
-import { sanitizeOutbound, stripZeroWidthSpace } from "@/utils/sanitize";
+import { ENV_PATH, SESSION_TOKEN } from "@/env";
+import { type Result, safeWithRetry, UpstreamError, upstreamText } from "@/lib/safe";
+import { toAipassMessages } from "@/openai/transform";
+import type { OpenAIMessage } from "@/openai/types";
+import { sanitizeOutbound, stripZeroWidthSpace } from "./sanitize";
+import type { AipassModel } from "./types";
+
+export const AIPASS_BASE = "https://de.aipass.net";
+
+if (!SESSION_TOKEN) {
+  throw new Error(`AIPASS_SESSION_TOKEN is required (run "aipass-proxy setup" or set it in ${ENV_PATH})`);
+}
+
+const cookieHeader = `__Secure-ai_passport_auth.session_token=${SESSION_TOKEN}`;
+
+// Cloudflare blocks requests missing browser-like User-Agent, Referer, and sec-fetch-* headers.
+export const baseHeaders = {
+  Cookie: cookieHeader,
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+  Accept: "application/json, text/plain, */*",
+  Origin: AIPASS_BASE,
+  "sec-fetch-dest": "empty",
+  "sec-fetch-mode": "cors",
+  "sec-fetch-site": "same-origin",
+};
 
 export async function createConversation(modelId: string, firstMessage: string): Promise<Result<string>> {
   return safeWithRetry(async () => {

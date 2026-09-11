@@ -23,4 +23,3 @@ export const chatCompletionsBodySchema = z.object({
 export type OpenAIToolCall = { id: string; type: "function"; function: { name: string; arguments: string } };
 export type OpenAIMessage = z.infer<typeof openAIMessageSchema>;
 export type OpenAITool = z.infer<typeof openAIToolSchema>;
-export type AipassModel = { id: string };
