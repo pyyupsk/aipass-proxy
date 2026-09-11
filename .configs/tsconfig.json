@@ -15,7 +15,7 @@
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["../src/*"]
     },
 
     // Best practices
@@ -29,5 +29,6 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
-  }
+  },
+  "include": ["../src/**/*"]
 }

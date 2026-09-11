@@ -9,14 +9,14 @@
   },
   "scripts": {
     "build": "bun build --compile --minify --bytecode --outfile dist/aipass-proxy ./src/cli.ts",
-    "check": "biome check .",
+    "check": "biome check --config-path .configs/biome.json .",
     "install-service": "bun run src/cli.ts install-service",
     "prepare": "nit install",
     "setup": "bun run src/cli.ts setup",
     "start": "bun run src/index.ts",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit"
+    "test": "vitest run --config .configs/vitest.ts",
+    "test:coverage": "vitest run --coverage --config .configs/vitest.ts",
+    "typecheck": "tsc --noEmit -p .configs/tsconfig.json"
   },
   "dependencies": {
     "ai": "^7.0.97",
@@ -36,7 +36,7 @@
     "hooks": {
       "pre-commit": {
         "stages": {
-          "*.{js,jsx,ts,tsx,json}": "bunx biome check {staged_files}"
+          "*.{js,jsx,ts,tsx,json}": "bunx biome check --config-path .configs/biome.json {staged_files}"
         }
       },
       "pre-push": "bun run typecheck"
