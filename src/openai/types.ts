@@ -4,7 +4,26 @@ export const openAIMessageSchema = z.object({
   role: z.string(),
   content: z.string().nullable(),
   tool_calls: z
-    .array(z.object({ id: z.string(), type: z.literal("function"), function: z.object({ name: z.string(), arguments: z.string() }) }))
+    .array(
+      z.object({
+        id: z.string(),
+        type: z.literal("function"),
+        function: z.object({
+          name: z.string(),
+          arguments: z.string().refine(
+            (v) => {
+              try {
+                JSON.parse(v);
+                return true;
+              } catch {
+                return false;
+              }
+            },
+            { message: "tool_calls[].function.arguments must be valid JSON" },
+          ),
+        }),
+      }),
+    )
     .optional(),
   tool_call_id: z.string().optional(),
   name: z.string().optional(),

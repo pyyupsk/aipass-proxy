@@ -41,7 +41,7 @@ export function textResponse(id: string, modelId: string, content: string) {
 export function errorResponse(err: UpstreamError) {
   console.error(`upstream error (${err.status}):`, err.message);
   const status = err.status >= 400 && err.status < 600 ? err.status : 502;
-  return Response.json({ error: { message: err.message, type: "upstream_error", code: err.status } }, { status });
+  return Response.json({ error: { message: err.message, type: "upstream_error", code: status } }, { status });
 }
 
 const TOOL_CALL_TAG = /<tool_call>([\s\S]*?)<\/tool_call>/g;
@@ -72,7 +72,12 @@ export function extractToolCall(text: string, tools: OpenAITool[]): { name: stri
       continue;
     }
     if (typeof parsed !== "object" || parsed === null) continue;
-    if ("name" in parsed && "arguments" in parsed) {
+    if (
+      "name" in parsed &&
+      "arguments" in parsed &&
+      typeof parsed.name === "string" &&
+      tools.some((t) => t.function.name === parsed.name)
+    ) {
       calls.push(parsed as { name: string; arguments: unknown });
     } else if (tools.length === 1 && tools[0]) {
       // Model sometimes emits bare arguments instead of the {name, arguments} envelope.
@@ -115,6 +120,10 @@ function normalizeMessages(messages: OpenAIMessage[]) {
       merged.push({ role: "user", content: `${systemBuffer}\n\n${m.content}` });
       systemBuffer = "";
     } else {
+      if (systemBuffer) {
+        merged.push({ role: "user", content: systemBuffer });
+        systemBuffer = "";
+      }
       merged.push(m);
     }
   }

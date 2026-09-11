@@ -43,6 +43,12 @@ describe("errorResponse", () => {
     const res = errorResponse(new UpstreamError("weird", 0));
     expect(res.status).toBe(502);
   });
+
+  test("error envelope code always matches the response status, even for an invalid upstream status", async () => {
+    const res = errorResponse(new UpstreamError("weird", 0));
+    const body = (await res.json()) as { error: { code: number } };
+    expect(body.error.code).toBe(res.status);
+  });
 });
 
 const tool = (name: string): OpenAITool => ({ type: "function", function: { name } });
@@ -68,6 +74,11 @@ describe("extractToolCall", () => {
 
   test("ignores bare arguments when multiple tools are available", () => {
     const text = '<tool_call>{"q": "cats"}</tool_call>';
+    expect(extractToolCall(text, [tool("search"), tool("other")])).toEqual([]);
+  });
+
+  test("rejects a call naming a tool that isn't declared", () => {
+    const text = '<tool_call>{"name": "unregistered", "arguments": {}}</tool_call>';
     expect(extractToolCall(text, [tool("search"), tool("other")])).toEqual([]);
   });
 
@@ -139,6 +150,19 @@ describe("toAipassMessages", () => {
     expect(result).toHaveLength(2);
     expect(result[1]?.role).toBe("user");
     expect(result[1]?.parts[0]?.text).toBe("final note");
+  });
+
+  test("flushes a buffered tool result before a following assistant message, preserving order", () => {
+    const messages: OpenAIMessage[] = [
+      { role: "tool", content: "42", name: "search", tool_call_id: "1" },
+      { role: "assistant", content: "the answer is 42" },
+    ];
+    const result = toAipassMessages(messages);
+    expect(result).toHaveLength(2);
+    expect(result[0]?.role).toBe("user");
+    expect(result[0]?.parts[0]?.text).toContain("Tool result (search): 42");
+    expect(result[1]?.role).toBe("assistant");
+    expect(result[1]?.parts[0]?.text).toBe("the answer is 42");
   });
 
   test("sanitizes path-traversal tokens in message content", () => {

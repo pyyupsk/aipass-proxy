@@ -49,5 +49,10 @@ export async function safeWithRetry<T>(fn: () => Promise<T>): Promise<Result<T>>
 
 export function toUpstreamError(err: unknown): UpstreamError {
   if (err instanceof UpstreamError) return err;
-  return new UpstreamError(err instanceof Error ? err.message : JSON.stringify(err), 500);
+  if (err instanceof Error) return new UpstreamError(err.message, 500);
+  try {
+    return new UpstreamError(JSON.stringify(err), 500);
+  } catch {
+    return new UpstreamError("unknown error", 500);
+  }
 }

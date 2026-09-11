@@ -93,4 +93,12 @@ describe("toUpstreamError", () => {
     expect(wrapped.status).toBe(500);
     expect(wrapped.message).toBe('"string throw"');
   });
+
+  test("falls back to a fixed message when JSON.stringify can't serialize the value", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    const wrapped = toUpstreamError(circular);
+    expect(wrapped.status).toBe(500);
+    expect(wrapped.message).toBe("unknown error");
+  });
 });

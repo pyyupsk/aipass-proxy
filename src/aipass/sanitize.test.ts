@@ -21,4 +21,9 @@ describe("stripZeroWidthSpace", () => {
   test("is a no-op on text without zero-width spaces", () => {
     expect(stripZeroWidthSpace("plain text")).toBe("plain text");
   });
+
+  test("preserves an unrelated zero-width space outside the inserted marker pattern", () => {
+    const text = "wordbreak​here";
+    expect(stripZeroWidthSpace(text)).toBe(text);
+  });
 });
