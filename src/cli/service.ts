@@ -53,8 +53,6 @@ export function installService(command: string[], workingDir: string) {
     console.log(`Run:\n  launchctl load ${plistPath}`);
     return plistPath;
   }
-  console.error(
-    `No native service manager wired up for platform "${process.platform}" — run it manually or use a process manager.`,
-  );
+  console.error(`No native service manager wired up for platform "${process.platform}" — run it manually or use a process manager.`);
   process.exit(1);
 }
