@@ -2,6 +2,9 @@
 
 OpenAI-compatible chat-completions proxy in front of [AIPass](https://de.aipass.net) — point any OpenAI-compatible client (opencode, etc.) at it and use AIPass's models through the standard `/v1/chat/completions` and `/v1/models` API.
 
+> [!WARNING]
+> AiPASS's [terms and conditions](https://aipass.go.th/term-and-cond-th) (§3.4) prohibit directly accessing, connecting to, or using the platform's API, API key, or token outside the official UI — which is exactly what this proxy does. Using it may violate those terms and risk suspension of your AiPASS account. This is not legal advice; read the terms yourself before using this project.
+
 ## Install
 
 ```sh
