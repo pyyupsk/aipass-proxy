@@ -1,4 +1,4 @@
-import { ENV_PATH, readEnvFile, writeEnvFile } from "@/env-file";
+import { ENV_PATH, readEnvFile, writeEnvFile } from "@/env";
 
 const BACKSPACE = "\x7f";
 const CTRL_C = "\x03";

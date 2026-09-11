@@ -28,3 +28,9 @@ export function writeEnvFile(vars: Record<string, string>): void {
   writeFileSync(ENV_PATH, content, { mode: 0o600 });
   chmodSync(ENV_PATH, 0o600);
 }
+
+const env = { ...readEnvFile(), ...process.env };
+const parsedPort = Number(env.PORT);
+
+export const SESSION_TOKEN = env.AIPASS_SESSION_TOKEN;
+export const PORT = env.PORT !== undefined && Number.isFinite(parsedPort) ? parsedPort : 47871;

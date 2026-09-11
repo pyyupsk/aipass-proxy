@@ -1,10 +1,10 @@
-import { createConversation, listModels, parseAipassStream, sendMessage } from "@/client/aipass-client";
-import { errorResponse, openaiChunk, openaiToolCallChunk, textResponse, toolCallResponse } from "@/format/openai-format";
-import { buildToolsPrompt, extractToolCall, safeToEmitLength, TOOL_CALL_OPEN_TAG } from "@/format/tool-call";
+import { createConversation, parseAipassStream, sendMessage } from "@/aipass/client";
+import { type Result, UpstreamError } from "@/lib/safe";
+import { openaiChunk, openaiToolCallChunk, safeToEmitLength, TOOL_CALL_OPEN_TAG } from "@/openai/stream";
+import { buildToolsPrompt, errorResponse, extractToolCall, textResponse, toolCallResponse } from "@/openai/transform";
+import type { OpenAITool } from "@/openai/types";
+import { chatCompletionsBodySchema } from "@/openai/types";
 import { conversationsBySessionKey, evictOldestSessionIfFull, sessionKey } from "@/sessions/sessions";
-import type { OpenAITool } from "@/types";
-import { chatCompletionsBodySchema } from "@/types";
-import { type Result, UpstreamError } from "@/utils/result";
 
 async function bufferedChatResponse(upstream: ReadableStream<Uint8Array>, id: string, modelId: string, tools: OpenAITool[]) {
   let content = "";
@@ -82,15 +82,6 @@ function streamChatResponse(upstream: ReadableStream<Uint8Array>, id: string, mo
     },
   });
   return new Response(readable, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
-}
-
-export async function handleModels() {
-  const [models, err] = await listModels();
-  if (err) return errorResponse(err);
-  return Response.json({
-    object: "list",
-    data: models.map((m) => ({ id: m.id, object: "model", owned_by: "aipass" })),
-  });
 }
 
 export async function handleChatCompletions(req: Request) {

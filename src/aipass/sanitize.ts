@@ -4,5 +4,6 @@
 // it back out of anything we hand back to the caller.
 const PATH_TRAVERSAL_TOKEN = /(\.{1,2})\//g;
 const ZERO_WIDTH_SPACE = "​";
+const INSERTED_MARKER = /(\.{1,2})​\//g;
 export const sanitizeOutbound = (text: string) => text.replace(PATH_TRAVERSAL_TOKEN, `$1${ZERO_WIDTH_SPACE}/`);
-export const stripZeroWidthSpace = (text: string) => text.replaceAll(ZERO_WIDTH_SPACE, "");
+export const stripZeroWidthSpace = (text: string) => text.replace(INSERTED_MARKER, "$1/");

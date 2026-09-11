@@ -5,14 +5,14 @@ const createConversation = vi.fn();
 const sendMessage = vi.fn();
 const listModels = vi.fn();
 
-vi.mock("@/client/aipass-client", () => ({
+vi.mock("@/aipass/client", () => ({
   createConversation: (...args: unknown[]) => createConversation(...args),
   sendMessage: (...args: unknown[]) => sendMessage(...args),
   listModels: (...args: unknown[]) => listModels(...args),
   parseAipassStream: async function* () {},
 }));
 
-const { handleChatCompletions } = await import("./handlers");
+const { handleChatCompletions } = await import("./chat-completions");
 
 function textStream() {
   return new ReadableStream<Uint8Array>({
@@ -73,7 +73,7 @@ describe("handleChatCompletions", () => {
   });
 
   test("returns an error response when createConversation fails", async () => {
-    const { UpstreamError } = await import("@/utils/result");
+    const { UpstreamError } = await import("@/lib/safe");
     createConversation.mockResolvedValue([null, new UpstreamError("nope", 502)]);
     const req = chatRequest({ messages: [{ role: "user", content: "hi" }] }, { "x-session-id": "s1" });
 
