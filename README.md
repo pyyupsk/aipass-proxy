@@ -36,26 +36,36 @@ Cross-folder imports use the `@/` alias (maps to `src/`); same-folder imports us
 
 ## Setup
 
+Download the `aipass-proxy` binary for your platform from [Releases](../../releases) — no clone/install needed. Then:
+
 ```sh
-bun install
-bun run setup   # prompts for AIPASS_SESSION_TOKEN and PORT, writes .env
+./aipass-proxy setup   # prompts for AIPASS_SESSION_TOKEN and PORT, writes .env in the cwd
+./aipass-proxy start
 ```
 
 `AIPASS_SESSION_TOKEN` is the `__Secure-ai_passport_auth.session_token` cookie value from an authenticated AIPass browser session.
 
-## Run
-
-```sh
-bun run start
-```
-
 ### Run as a background service
 
 ```sh
-bun run install-service
+./aipass-proxy install-service
 ```
 
-Generates a systemd user unit (Linux) or launchd agent (macOS) that runs `bun run start` from this directory, then prints the command to enable it (`systemctl --user enable --now aipass-proxy` / `launchctl load ...`).
+Generates a systemd user unit (Linux) or launchd agent (macOS) that runs the binary's `start` command from the current directory, then prints the command to enable it (`systemctl --user enable --now aipass-proxy` / `launchctl load ...`).
+
+## Running from source
+
+```sh
+bun install
+bun run setup
+bun run start           # or: bun run install-service
+```
+
+### Building the binary
+
+```sh
+bun run build           # outputs dist/aipass-proxy
+```
 
 ## Development
 
