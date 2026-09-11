@@ -1,6 +1,6 @@
 import type { OpenAITool } from "@/types";
 
-export const TOOL_CALL_TAG = /<tool_call>([\s\S]*?)<\/tool_call>/g;
+const TOOL_CALL_TAG = /<tool_call>([\s\S]*?)<\/tool_call>/g;
 export const TOOL_CALL_OPEN_TAG = "<tool_call>";
 
 // While streaming, we can't tell a plain reply from the start of a
