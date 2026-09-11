@@ -5,6 +5,7 @@ import { PORT } from "./config";
 export function startServer() {
   Bun.serve({
     port: PORT,
+    hostname: "127.0.0.1",
     async fetch(req) {
       try {
         const url = new URL(req.url);
