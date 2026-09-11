@@ -36,17 +36,16 @@ Cross-folder imports use the `@/` alias (maps to `src/`); same-folder imports us
 
 ## Setup
 
-Download the latest binary for your platform from [Releases](https://github.com/pyyupsk/aipass-proxy/releases/latest) — no clone/install needed:
+Install the latest binary for your platform — no clone needed:
 
 ```sh
-curl -L -o aipass-proxy https://github.com/pyyupsk/aipass-proxy/releases/latest/download/aipass-proxy-linux-x64
-chmod +x aipass-proxy
+curl -sL https://raw.githubusercontent.com/pyyupsk/aipass-proxy/main/install.sh | bash
 ```
 
-Available assets: `aipass-proxy-linux-x64`, `aipass-proxy-linux-arm64`, `aipass-proxy-darwin-x64`, `aipass-proxy-darwin-arm64`.
+Detects your OS/arch and installs to `~/.local/bin` (override with `INSTALL_DIR=...`). Or download manually from [Releases](https://github.com/pyyupsk/aipass-proxy/releases/latest): `aipass-proxy-linux-x64`, `aipass-proxy-linux-arm64`, `aipass-proxy-darwin-x64`, `aipass-proxy-darwin-arm64`.
 
 ```sh
-./aipass-proxy setup   # prompts for AIPASS_SESSION_TOKEN and PORT, writes .env in the cwd
+./aipass-proxy setup   # prompts for AIPASS_SESSION_TOKEN and PORT, writes ~/.config/aipass-proxy/.env (chmod 600)
 ./aipass-proxy start
 ```
 

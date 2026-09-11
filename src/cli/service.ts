@@ -33,7 +33,7 @@ function launchdPlist(command: string[], workingDir: string) {
 }
 
 // Generates an OS-native service unit that runs `command` from `workingDir`
-// (Bun auto-loads .env there) instead of hand-rolling process daemonization.
+// instead of hand-rolling process daemonization.
 export function installService(command: string[], workingDir: string) {
   if (process.platform === "linux") {
     const dir = path.join(os.homedir(), ".config/systemd/user");

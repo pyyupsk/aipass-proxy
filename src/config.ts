@@ -1,9 +1,13 @@
+import { ENV_PATH, readEnvFile } from "@/env-file";
+
+const env = { ...readEnvFile(), ...process.env };
+
 export const AIPASS_BASE = "https://de.aipass.net";
-const SESSION_TOKEN = process.env.AIPASS_SESSION_TOKEN;
-export const PORT = Number(process.env.PORT ?? 47871);
+const SESSION_TOKEN = env.AIPASS_SESSION_TOKEN;
+export const PORT = Number(env.PORT ?? 47871);
 
 if (!SESSION_TOKEN) {
-  throw new Error("AIPASS_SESSION_TOKEN is required (see .env)");
+  throw new Error(`AIPASS_SESSION_TOKEN is required (run "aipass-proxy setup" or set it in ${ENV_PATH})`);
 }
 
 const cookieHeader = `__Secure-ai_passport_auth.session_token=${SESSION_TOKEN}`;
