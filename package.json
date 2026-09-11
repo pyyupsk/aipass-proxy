@@ -1,5 +1,6 @@
 {
   "name": "aipass-proxy",
+  "version": "0.1.2",
   "module": "src/index.ts",
   "type": "module",
   "private": true,
