@@ -1,10 +1,48 @@
 import { ENV_PATH, readEnvFile, writeEnvFile } from "@/env-file";
 
-export function setup() {
+const BACKSPACE = "\x7f";
+const CTRL_C = "\x03";
+
+function promptHidden(label: string): Promise<string> {
+  return new Promise((resolve) => {
+    process.stdout.write(label);
+    const { stdin } = process;
+    const wasRaw = stdin.isRaw;
+    stdin.setRawMode?.(true);
+    stdin.resume();
+
+    let input = "";
+    const onData = (chunk: Buffer) => {
+      for (const char of chunk.toString("utf8")) {
+        if (char === "\r" || char === "\n") {
+          stdin.setRawMode?.(wasRaw ?? false);
+          stdin.pause();
+          stdin.off("data", onData);
+          process.stdout.write("\n");
+          resolve(input);
+          return;
+        }
+        if (char === CTRL_C) process.exit(130);
+        if (char === BACKSPACE || char === "\b") {
+          if (input.length > 0) {
+            input = input.slice(0, -1);
+            process.stdout.write("\b \b");
+          }
+          continue;
+        }
+        input += char;
+        process.stdout.write("*");
+      }
+    };
+    stdin.on("data", onData);
+  });
+}
+
+export async function setup() {
   const existing = readEnvFile();
 
-  const token = prompt(`AIPass session token${existing.AIPASS_SESSION_TOKEN ? " (leave blank to keep current)" : ""}:`) ?? "";
-  const port = prompt(`Port [${existing.PORT ?? "47871"}]:`) ?? "";
+  const token = await promptHidden(`AIPass session token${existing.AIPASS_SESSION_TOKEN ? " (leave blank to keep current)" : ""}: `);
+  const port = prompt(`Port (leave blank for default ${existing.PORT ?? "47871"}):`) ?? "";
 
   const next = {
     ...existing,

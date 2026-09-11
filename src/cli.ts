@@ -10,7 +10,7 @@ const execCommand = isCompiled ? [process.execPath] : [process.execPath, "run", 
 
 switch (command) {
   case "setup":
-    setup();
+    await setup();
     break;
   case "install-service":
     installService([...execCommand, "start"], process.cwd());
