@@ -1,78 +1,73 @@
 # aipass-proxy
 
-OpenAI-compatible proxy in front of Aipass.
+OpenAI-compatible chat-completions proxy in front of [AIPass](https://de.aipass.net) — point any OpenAI-compatible client (opencode, etc.) at it and use AIPass's models through the standard `/v1/chat/completions` and `/v1/models` API.
 
-## Structure
-
-```tree
-src/
-  index.ts                # entrypoint (Bun.serve)
-  config.ts               # env/const config
-  types.ts                # shared types + zod request schemas
-  cli.ts                  # aipass-proxy CLI entrypoint
-  cli/
-    setup.ts              # interactive .env setup
-    service.ts            # systemd/launchd service file generation
-  client/
-    aipass-client.ts      # upstream Aipass API calls
-  handlers/
-    handlers.ts           # HTTP route handlers
-  format/
-    openai-format.ts      # OpenAI-compatible response shaping
-    tool-call.ts          # tool-call parsing/formatting
-  sessions/
-    sessions.ts           # session store
-  utils/
-    result.ts             # Result/error helpers
-    sanitize.ts           # input sanitization
-    messages.ts           # message transform helpers
-```
-
-Tests are colocated as `<file>.test.ts` next to the code they cover.
-
-## Imports
-
-Cross-folder imports use the `@/` alias (maps to `src/`); same-folder imports use `./`.
-
-## Setup
-
-Install the latest binary for your platform — no clone needed:
+## Install
 
 ```sh
 curl -sL https://raw.githubusercontent.com/pyyupsk/aipass-proxy/main/install.sh | bash
 ```
 
-Detects your OS/arch and installs to `~/.local/bin` (override with `INSTALL_DIR=...`). Or download manually from [Releases](https://github.com/pyyupsk/aipass-proxy/releases/latest): `aipass-proxy-linux-x64`, `aipass-proxy-linux-arm64`, `aipass-proxy-darwin-x64`, `aipass-proxy-darwin-arm64`.
+Detects your OS/arch and installs the latest binary to `~/.local/bin` (override with `INSTALL_DIR=...`). No clone, no Bun/Node install required.
+
+Prebuilt binaries are also available directly from [Releases](https://github.com/pyyupsk/aipass-proxy/releases/latest): `aipass-proxy-linux-x64`, `aipass-proxy-linux-arm64`, `aipass-proxy-darwin-x64`, `aipass-proxy-darwin-arm64`.
+
+## Setup
 
 ```sh
-./aipass-proxy setup            # prompts for AIPASS_SESSION_TOKEN and PORT, writes ~/.config/aipass-proxy/.env (chmod 600)
-./aipass-proxy start            # run it in the foreground
-./aipass-proxy install-service  # or, one-time: install it as a background service
+aipass-proxy setup
 ```
 
-`AIPASS_SESSION_TOKEN` is the `__Secure-ai_passport_auth.session_token` cookie value from an authenticated AIPass browser session.
+Prompts for:
 
-`install-service` generates a systemd user unit (Linux) or launchd agent (macOS) that runs the binary's `start` command from the current directory, then prints the command to enable it (`systemctl --user enable --now aipass-proxy` / `launchctl load ...`). Once enabled it starts on login and restarts on failure — no need to run `aipass-proxy start` manually.
+- **AIPass session token** — the `__Secure-ai_passport_auth.session_token` cookie value from an authenticated [de.aipass.net](https://de.aipass.net) browser session (DevTools → Application/Storage → Cookies). Input is masked while typing.
+- **Port** — leave blank for the default `47871`.
 
-## Running from source
+Writes `~/.config/aipass-proxy/.env`, locked to `chmod 600` (readable only by you).
+
+## Run
 
 ```sh
-bun install
-bun run setup
-bun run start           # or: bun run install-service
+aipass-proxy start
 ```
 
-### Building the binary
+Runs in the foreground on `http://localhost:47871` (or your configured port).
+
+### Run as a background service
 
 ```sh
-bun run build           # outputs dist/aipass-proxy
+aipass-proxy install-service
 ```
 
-## Development
+One-time setup: generates a systemd user unit (Linux) or launchd agent (macOS), then prints the command to enable it:
 
 ```sh
-bun run check          # lint/format (biome)
-bun run typecheck      # tsc --noEmit
-bun run test           # vitest
-bun run test:coverage  # vitest with coverage report
+systemctl --user enable --now aipass-proxy   # Linux
+launchctl load ~/Library/LaunchAgents/com.aipass-proxy.plist   # macOS
 ```
+
+Once enabled it starts on login and restarts automatically on failure — no need to run `aipass-proxy start` manually again.
+
+## Use it
+
+```sh
+curl http://localhost:47871/v1/models
+
+curl http://localhost:47871/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gemini-3.1-flash-lite","messages":[{"role":"user","content":"hello"}]}'
+```
+
+Or point an OpenAI-compatible client (e.g. opencode) at `http://localhost:47871/v1` as a custom provider base URL.
+
+## Updating
+
+Re-run the install command to fetch the latest release:
+
+```sh
+curl -sL https://raw.githubusercontent.com/pyyupsk/aipass-proxy/main/install.sh | bash
+```
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for running from source, building the binary, and the codebase structure.
