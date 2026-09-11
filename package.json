@@ -16,7 +16,7 @@
     "start": "bun run src/index.ts",
     "test": "vitest run --config .configs/vitest.ts",
     "test:coverage": "vitest run --coverage --config .configs/vitest.ts",
-    "typecheck": "tsc --noEmit -p .configs/tsconfig.json"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "ai": "^7.0.97",
