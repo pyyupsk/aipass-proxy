@@ -3,8 +3,13 @@
   "module": "src/index.ts",
   "type": "module",
   "private": true,
+  "bin": {
+    "aipass-proxy": "./src/cli.ts"
+  },
   "scripts": {
     "check": "biome check .",
+    "install-service": "bun run src/cli.ts install-service",
+    "setup": "bun run src/cli.ts setup",
     "start": "bun run src/index.ts",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
