@@ -28,7 +28,7 @@ function isAuthFailureBody(body: unknown): boolean {
 
 function assertAuthenticated(body: unknown): void {
   if (isAuthFailureBody(body)) {
-    throw new UpstreamError(`AIPass session expired — run "aipass-proxy setup" to re-authenticate (see ${ENV_PATH})`, 401);
+    throw new UpstreamError('AIPass session expired — run "aipass-proxy setup" to re-authenticate', 401);
   }
 }
 
@@ -83,7 +83,7 @@ export async function sendMessage(
     if (res.headers.get("content-type")?.includes("application/json")) {
       const body = await res.json().catch(() => null);
       assertAuthenticated(body);
-      throw new UpstreamError(`send-message failed: ${JSON.stringify(body)}`, res.status);
+      throw new UpstreamError(`send-message failed: ${JSON.stringify(body)}`, res.ok ? 502 : res.status);
     }
     if (!res.ok || !res.body) throw new UpstreamError(`send-message failed: ${await upstreamText(res)}`, res.status);
     return res.body;
