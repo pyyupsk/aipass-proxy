@@ -32,13 +32,20 @@ export const openAIToolSchema = z.object({
   type: z.literal("function"),
   function: z.object({ name: z.string(), description: z.string().optional(), parameters: z.unknown().optional() }),
 });
+export const responseFormatSchema = z.object({
+  type: z.literal("json_schema"),
+  json_schema: z.object({ name: z.string().optional(), schema: z.record(z.string(), z.unknown()) }),
+});
 export const chatCompletionsBodySchema = z.object({
   messages: z.array(openAIMessageSchema),
   model: z.string().optional(),
   stream: z.boolean().optional(),
   tools: z.array(openAIToolSchema).optional(),
+  response_format: responseFormatSchema.optional(),
 });
 
 export type OpenAIToolCall = { id: string; type: "function"; function: { name: string; arguments: string } };
 export type OpenAIMessage = z.infer<typeof openAIMessageSchema>;
 export type OpenAITool = z.infer<typeof openAIToolSchema>;
+export type JsonSchema = Record<string, unknown>;
+export type ResponseFormat = z.infer<typeof responseFormatSchema>;
