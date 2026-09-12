@@ -1,7 +1,16 @@
 import { describe, expect, test } from "vitest";
 import { UpstreamError } from "@/lib/safe";
-import { errorResponse, extractToolCall, textResponse, toAipassMessages, toolCallResponse } from "./transform";
-import type { OpenAIMessage, OpenAITool } from "./types";
+import {
+  errorResponse,
+  extractToolCall,
+  extractToolCallErrors,
+  parseStructuredOutput,
+  textResponse,
+  toAipassMessages,
+  toolCallResponse,
+  validateJsonSchema,
+} from "./transform";
+import type { JsonSchema, OpenAIMessage, OpenAITool } from "./types";
 
 type ChatCompletionBody = {
   choices: [
@@ -89,6 +98,92 @@ describe("extractToolCall", () => {
 
   test("returns nothing when there's no tag", () => {
     expect(extractToolCall("just plain text", [tool("search")])).toEqual([]);
+  });
+});
+
+describe("extractToolCallErrors", () => {
+  test("returns nothing for a well-formed call", () => {
+    const text = '<tool_call>{"name": "search", "arguments": {}}</tool_call>';
+    expect(extractToolCallErrors(text, [tool("search")])).toEqual([]);
+  });
+
+  test("returns nothing when there's no tag", () => {
+    expect(extractToolCallErrors("just plain text", [tool("search")])).toEqual([]);
+  });
+
+  test("flags malformed JSON", () => {
+    const text = "<tool_call>not json</tool_call>";
+    expect(extractToolCallErrors(text, [tool("search")])).toEqual(["not valid JSON: not json"]);
+  });
+
+  test("flags an unknown tool name", () => {
+    const text = '<tool_call>{"name": "unregistered", "arguments": {}}</tool_call>';
+    expect(extractToolCallErrors(text, [tool("search"), tool("other")])).toEqual(['unknown tool name "unregistered"']);
+  });
+
+  test("flags a bare-arguments call when multiple tools are declared", () => {
+    const text = '<tool_call>{"q": "cats"}</tool_call>';
+    const [error] = extractToolCallErrors(text, [tool("search"), tool("other")]);
+    expect(error).toContain("missing");
+  });
+
+  test("allows bare arguments for a single declared tool", () => {
+    const text = '<tool_call>{"q": "cats"}</tool_call>';
+    expect(extractToolCallErrors(text, [tool("search")])).toEqual([]);
+  });
+});
+
+describe("validateJsonSchema", () => {
+  test("passes a matching object", () => {
+    const schema: JsonSchema = { type: "object", required: ["name"], properties: { name: { type: "string" } } };
+    expect(validateJsonSchema({ name: "cats" }, schema)).toEqual([]);
+  });
+
+  test("flags a missing required property", () => {
+    const schema: JsonSchema = { type: "object", required: ["name"], properties: { name: { type: "string" } } };
+    expect(validateJsonSchema({}, schema)).toEqual(["name: required property missing"]);
+  });
+
+  test("flags a type mismatch on a nested property", () => {
+    const schema: JsonSchema = { type: "object", properties: { age: { type: "number" } } };
+    const [error] = validateJsonSchema({ age: "old" }, schema);
+    expect(error).toContain("age");
+    expect(error).toContain('expected type "number"');
+  });
+
+  test("flags a value outside an enum", () => {
+    const schema: JsonSchema = { enum: ["a", "b"] };
+    expect(validateJsonSchema("c", schema)).toEqual(['root: expected one of ["a","b"], got "c"']);
+  });
+
+  test("validates array items", () => {
+    const schema: JsonSchema = { type: "array", items: { type: "number" } };
+    const [error] = validateJsonSchema([1, "two"], schema);
+    expect(error).toContain("[1]");
+  });
+});
+
+describe("parseStructuredOutput", () => {
+  const schema: JsonSchema = { type: "object", required: ["answer"], properties: { answer: { type: "string" } } };
+
+  test("succeeds for schema-conforming JSON", () => {
+    const result = parseStructuredOutput('{"answer": "42"}', schema);
+    expect(result).toEqual({ ok: true, value: { answer: "42" } });
+  });
+
+  test("strips markdown code fences before parsing", () => {
+    const result = parseStructuredOutput('```json\n{"answer": "42"}\n```', schema);
+    expect(result).toEqual({ ok: true, value: { answer: "42" } });
+  });
+
+  test("fails on invalid JSON", () => {
+    const result = parseStructuredOutput("not json", schema);
+    expect(result).toEqual({ ok: false, errors: ["response is not valid JSON"] });
+  });
+
+  test("fails on a schema mismatch", () => {
+    const result = parseStructuredOutput("{}", schema);
+    expect(result.ok).toBe(false);
   });
 });
 

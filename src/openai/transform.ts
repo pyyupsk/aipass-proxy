@@ -1,6 +1,6 @@
 import { sanitizeOutbound } from "@/aipass/sanitize";
 import type { UpstreamError } from "@/lib/safe";
-import type { OpenAIMessage, OpenAITool } from "./types";
+import type { JsonSchema, OpenAIMessage, OpenAITool } from "./types";
 
 function envelope(id: string, model: string, object: string, fields: Record<string, unknown>) {
   return { id, object, created: Math.floor(Date.now() / 1000), model, ...fields };
@@ -85,6 +85,121 @@ export function extractToolCall(text: string, tools: OpenAITool[]): { name: stri
     }
   }
   return calls;
+}
+
+// Explains why a <tool_call> tag was dropped, so a caller can retry with the
+// model told what went wrong instead of silently falling back to plain text.
+function toolCallMatchError(raw: string, tools: OpenAITool[]): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return `not valid JSON: ${raw.slice(0, 200)}`;
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    return `must be a JSON object with "name" and "arguments": ${raw.slice(0, 200)}`;
+  }
+  const obj = parsed as { name?: unknown; arguments?: unknown };
+  const named = "name" in obj && "arguments" in obj && typeof obj.name === "string";
+  if (named) return tools.some((t) => t.function.name === obj.name) ? null : `unknown tool name "${obj.name}"`;
+  if (tools.length === 1) return null;
+  return `missing "name"/"arguments" and more than one tool is declared: ${raw.slice(0, 200)}`;
+}
+
+export function extractToolCallErrors(text: string, tools: OpenAITool[]): string[] {
+  const errors: string[] = [];
+  for (const match of text.matchAll(TOOL_CALL_TAG)) {
+    if (!match[1]) continue;
+    const error = toolCallMatchError(match[1], tools);
+    if (error) errors.push(error);
+  }
+  return errors;
+}
+
+export function buildJsonSchemaPrompt(schema: JsonSchema, name?: string) {
+  const label = name ? ` (${name})` : "";
+  return (
+    `Respond with ONLY valid JSON matching this schema${label}, and nothing else ` +
+    `(no markdown fences, no commentary):\n${JSON.stringify(schema)}`
+  );
+}
+
+function jsonSchemaTypeMatches(value: unknown, type: string): boolean {
+  switch (type) {
+    case "object":
+      return typeof value === "object" && value !== null && !Array.isArray(value);
+    case "array":
+      return Array.isArray(value);
+    case "string":
+      return typeof value === "string";
+    case "number":
+    case "integer":
+      return typeof value === "number";
+    case "boolean":
+      return typeof value === "boolean";
+    case "null":
+      return value === null;
+    default:
+      return true;
+  }
+}
+
+function childPath(path: string, key: string) {
+  return `${path}${path ? "." : ""}${key}`;
+}
+
+function validateObjectSchema(value: Record<string, unknown>, schema: JsonSchema, path: string): string[] {
+  const errors: string[] = [];
+  for (const key of (schema.required as string[] | undefined) ?? []) {
+    if (!(key in value)) errors.push(`${childPath(path, key)}: required property missing`);
+  }
+  const props = schema.properties as Record<string, JsonSchema> | undefined;
+  for (const [key, propSchema] of Object.entries(props ?? {})) {
+    if (key in value) errors.push(...validateJsonSchema(value[key], propSchema, childPath(path, key)));
+  }
+  return errors;
+}
+
+function validateArraySchema(value: unknown[], itemSchema: JsonSchema, path: string): string[] {
+  const errors: string[] = [];
+  for (const [i, item] of value.entries()) errors.push(...validateJsonSchema(item, itemSchema, `${path}[${i}]`));
+  return errors;
+}
+
+// Minimal JSON Schema validator: type/required/properties/items/enum — covers the
+// structural mistakes models actually make, not a full JSON Schema implementation.
+export function validateJsonSchema(value: unknown, schema: JsonSchema, path = ""): string[] {
+  const label = path || "root";
+  if (Array.isArray(schema.enum) && !schema.enum.some((e) => JSON.stringify(e) === JSON.stringify(value))) {
+    return [`${label}: expected one of ${JSON.stringify(schema.enum)}, got ${JSON.stringify(value)}`];
+  }
+  if (typeof schema.type === "string" && !jsonSchemaTypeMatches(value, schema.type)) {
+    return [`${label}: expected type "${schema.type}", got ${JSON.stringify(value).slice(0, 200)}`];
+  }
+  if (schema.type === "object" && value && typeof value === "object") {
+    return validateObjectSchema(value as Record<string, unknown>, schema, path);
+  }
+  if (schema.type === "array" && Array.isArray(value) && schema.items) {
+    return validateArraySchema(value, schema.items as JsonSchema, path);
+  }
+  return [];
+}
+
+export type StructuredOutputResult = { ok: true; value: unknown } | { ok: false; errors: string[] };
+
+export function parseStructuredOutput(text: string, schema: JsonSchema): StructuredOutputResult {
+  const stripped = text
+    .trim()
+    .replace(/^```(?:json)?\n?/, "")
+    .replace(/```$/, "");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripped);
+  } catch {
+    return { ok: false, errors: ["response is not valid JSON"] };
+  }
+  const errors = validateJsonSchema(parsed, schema);
+  return errors.length ? { ok: false, errors } : { ok: true, value: parsed };
 }
 
 // AIPass has no role:"system"/"tool" and no native tool-calling, so fold

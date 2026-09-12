@@ -1,16 +1,74 @@
 import { createConversation, parseAipassStream, sendMessage } from "@/aipass/client";
 import { type Result, UpstreamError } from "@/lib/safe";
 import { openaiChunk, openaiToolCallChunk, safeToEmitLength, TOOL_CALL_OPEN_TAG } from "@/openai/stream";
-import { buildToolsPrompt, errorResponse, extractToolCall, textResponse, toolCallResponse } from "@/openai/transform";
-import type { OpenAITool } from "@/openai/types";
+import {
+  buildJsonSchemaPrompt,
+  buildToolsPrompt,
+  errorResponse,
+  extractToolCall,
+  extractToolCallErrors,
+  parseStructuredOutput,
+  textResponse,
+  toolCallResponse,
+} from "@/openai/transform";
+import type { JsonSchema, OpenAITool } from "@/openai/types";
 import { chatCompletionsBodySchema } from "@/openai/types";
 import { conversationsBySessionKey, evictOldestSessionIfFull, sessionKey } from "@/sessions/sessions";
 
-async function bufferedChatResponse(upstream: ReadableStream<Uint8Array>, id: string, modelId: string, tools: OpenAITool[]) {
+async function bufferContent(stream: ReadableStream<Uint8Array>) {
   let content = "";
-  for await (const delta of parseAipassStream(upstream)) content += delta;
-  const calls = tools.length ? extractToolCall(content, tools) : [];
-  return calls.length ? toolCallResponse(id, modelId, calls) : textResponse(id, modelId, content);
+  for await (const delta of parseAipassStream(stream)) content += delta;
+  return content;
+}
+
+// Retries once, in-conversation, when the model's tool_call tag is malformed rather
+// than simply absent — an absent tag just means "no tool needed", not a mistake to fix.
+async function bufferedChatResponse(
+  upstream: ReadableStream<Uint8Array>,
+  id: string,
+  modelId: string,
+  tools: OpenAITool[],
+  conversationId: string,
+) {
+  const content = await bufferContent(upstream);
+  if (!tools.length) return textResponse(id, modelId, content);
+
+  const calls = extractToolCall(content, tools);
+  if (calls.length) return toolCallResponse(id, modelId, calls);
+
+  const errors = extractToolCallErrors(content, tools);
+  if (!errors.length) return textResponse(id, modelId, content);
+
+  const retryMessage = `Your previous <tool_call> was invalid:\n${errors.join("\n")}\nEmit a corrected <tool_call>{"name": ..., "arguments": ...} tag, or answer normally if no tool is needed.`;
+  const [retryStream, retryErr] = await sendMessage(conversationId, modelId, [{ role: "user", content: retryMessage }]);
+  if (retryErr) return errorResponse(retryErr);
+
+  const retryContent = await bufferContent(retryStream);
+  const retryCalls = extractToolCall(retryContent, tools);
+  return retryCalls.length ? toolCallResponse(id, modelId, retryCalls) : textResponse(id, modelId, retryContent);
+}
+
+// Structured output always buffers (no partial-JSON streaming) and retries once,
+// in-conversation, on a schema mismatch before surfacing a clear error.
+async function structuredChatResponse(
+  upstream: ReadableStream<Uint8Array>,
+  id: string,
+  modelId: string,
+  schema: JsonSchema,
+  conversationId: string,
+) {
+  const result = parseStructuredOutput(await bufferContent(upstream), schema);
+  if (result.ok) return textResponse(id, modelId, JSON.stringify(result.value));
+
+  const retryMessage = `Your previous response did not match the required JSON schema:\n${result.errors.join("\n")}\nRespond again with ONLY corrected JSON matching the schema.`;
+  const [retryStream, retryErr] = await sendMessage(conversationId, modelId, [{ role: "user", content: retryMessage }]);
+  if (retryErr) return errorResponse(retryErr);
+
+  const retryResult = parseStructuredOutput(await bufferContent(retryStream), schema);
+  if (retryResult.ok) return textResponse(id, modelId, JSON.stringify(retryResult.value));
+  return errorResponse(
+    new UpstreamError(`model did not produce schema-conforming JSON after retry: ${retryResult.errors.join("; ")}`, 502),
+  );
 }
 
 // Stream plain text through as it arrives; only start buffering once we've
@@ -93,6 +151,10 @@ export async function handleChatCompletions(req: Request) {
   const stream = body.stream ?? false;
   const id = crypto.randomUUID();
 
+  if (body.response_format && stream) {
+    return errorResponse(new UpstreamError("response_format is not supported with stream: true", 400));
+  }
+
   const key = sessionKey(req, messages);
   const existing = conversationsBySessionKey.get(key);
   const [conversationId, convErr]: Result<string> = existing
@@ -103,11 +165,20 @@ export async function handleChatCompletions(req: Request) {
   const sliced = messages.slice(existing?.sentCount ?? 0);
   const newMessages = sliced.length > 0 ? sliced : messages;
   const toolsPrompt = body.tools?.length ? [{ role: "system", content: buildToolsPrompt(body.tools) }] : [];
-  const [upstream, sendErr] = await sendMessage(conversationId, modelId, [...toolsPrompt, ...newMessages]);
+  const responseFormat = body.response_format;
+  const schemaPrompt = responseFormat
+    ? [{ role: "system", content: buildJsonSchemaPrompt(responseFormat.json_schema.schema, responseFormat.json_schema.name) }]
+    : [];
+  const [upstream, sendErr] = await sendMessage(conversationId, modelId, [...toolsPrompt, ...schemaPrompt, ...newMessages]);
   if (sendErr) return errorResponse(sendErr);
   if (!existing) evictOldestSessionIfFull();
   conversationsBySessionKey.set(key, { conversationId, sentCount: messages.length });
 
+  // json_schema always buffers to validate — streaming a partial JSON document can't be validated mid-flight.
+  if (responseFormat) return structuredChatResponse(upstream, id, modelId, responseFormat.json_schema.schema, conversationId);
+
   const tools = body.tools ?? [];
-  return stream ? streamChatResponse(upstream, id, modelId, tools) : await bufferedChatResponse(upstream, id, modelId, tools);
+  return stream
+    ? streamChatResponse(upstream, id, modelId, tools)
+    : await bufferedChatResponse(upstream, id, modelId, tools, conversationId);
 }
