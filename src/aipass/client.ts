@@ -14,6 +14,24 @@ if (!SESSION_TOKEN) {
 
 const cookieHeader = `__Secure-ai_passport_auth.session_token=${SESSION_TOKEN}`;
 
+// AIPass's gateway always returns HTTP 200, even on auth failure — the real signal is the body shape,
+// which differs per endpoint (nested object, plain string, or a React-Flight-style array).
+function isAuthFailureBody(body: unknown): boolean {
+  if (Array.isArray(body)) return body.includes("Authentication required");
+  if (body && typeof body === "object" && "error" in body) {
+    const err = (body as { error?: unknown }).error;
+    if (typeof err === "string") return /auth/i.test(err);
+    if (err && typeof err === "object") return (err as { code?: string }).code === "UNAUTHORIZED";
+  }
+  return false;
+}
+
+function assertAuthenticated(body: unknown): void {
+  if (isAuthFailureBody(body)) {
+    throw new UpstreamError(`AIPass session expired — run "aipass-proxy setup" to re-authenticate (see ${ENV_PATH})`, 401);
+  }
+}
+
 // Cloudflare blocks requests missing browser-like User-Agent, Referer, and sec-fetch-* headers.
 export const baseHeaders = {
   Cookie: cookieHeader,
@@ -41,6 +59,7 @@ export async function createConversation(modelId: string, firstMessage: string):
     if (!res.ok) throw new UpstreamError(`chat.data failed: ${await upstreamText(res)}`, res.status);
 
     const body = (await res.json()) as unknown[];
+    assertAuthenticated(body);
     const idx = body.indexOf("conversationId");
     const conversationId = idx >= 0 ? body[idx + 1] : undefined;
     if (typeof conversationId !== "string") {
@@ -61,6 +80,11 @@ export async function sendMessage(
       headers: { ...baseHeaders, "Content-Type": "application/json", Referer: `${AIPASS_BASE}/chat/${conversationId}` },
       body: JSON.stringify({ modelId, messages: toAipassMessages(messages) }),
     });
+    if (res.headers.get("content-type")?.includes("application/json")) {
+      const body = await res.json().catch(() => null);
+      assertAuthenticated(body);
+      throw new UpstreamError(`send-message failed: ${JSON.stringify(body)}`, res.status);
+    }
     if (!res.ok || !res.body) throw new UpstreamError(`send-message failed: ${await upstreamText(res)}`, res.status);
     return res.body;
   });
@@ -74,6 +98,7 @@ export async function listModels(): Promise<Result<AipassModel[]>> {
     const res = await fetch(`${AIPASS_BASE}/loaders/list-models`, { headers: baseHeaders });
     if (!res.ok) throw new UpstreamError(`list-models failed: ${await upstreamText(res)}`, res.status);
     const body = (await res.json()) as { data: AipassModel[] };
+    assertAuthenticated(body);
     return body.data.filter((m) => !NON_CHAT_MODEL.test(m.id));
   });
 }
