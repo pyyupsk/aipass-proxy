@@ -34,6 +34,7 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - run: cd dist && sha256sum aipass-proxy-* > checksums.txt
       - run: bunx changelogithub
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
