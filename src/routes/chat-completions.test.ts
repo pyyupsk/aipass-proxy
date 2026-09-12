@@ -9,23 +9,41 @@ vi.mock("@/aipass/client", () => ({
   createConversation: (...args: unknown[]) => createConversation(...args),
   sendMessage: (...args: unknown[]) => sendMessage(...args),
   listModels: (...args: unknown[]) => listModels(...args),
-  // Test streams carry their target text as raw bytes; decode instead of the
-  // real AI-SDK UI-message-chunk parsing.
+  // Test streams carry their target text as raw bytes, one delta per underlying
+  // chunk, instead of the real AI-SDK UI-message-chunk parsing.
   parseAipassStream: async function* (stream: ReadableStream<Uint8Array>) {
-    const text = await new Response(stream).text();
-    if (text) yield text;
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      const text = decoder.decode(value);
+      if (text) yield text;
+    }
   },
 }));
 
 const { handleChatCompletions } = await import("./chat-completions");
 
-function textStream(text = "") {
+function chunkedStream(...chunks: string[]) {
   return new ReadableStream<Uint8Array>({
     start(controller) {
-      if (text) controller.enqueue(new TextEncoder().encode(text));
+      for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk));
       controller.close();
     },
   });
+}
+
+function textStream(text = "") {
+  return text ? chunkedStream(text) : chunkedStream();
+}
+
+function parseSseEvents(body: string) {
+  return body
+    .split("\n\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("data: ") && line !== "data: [DONE]")
+    .map((line) => JSON.parse(line.slice("data: ".length)));
 }
 
 function chatRequest(body: unknown, headers: Record<string, string> = {}) {
@@ -171,5 +189,76 @@ describe("handleChatCompletions structured output", () => {
 
     expect(sendMessage).toHaveBeenCalledTimes(2);
     expect(res.status).toBe(502);
+  });
+});
+
+describe("handleChatCompletions streaming", () => {
+  const tool = { type: "function" as const, function: { name: "search" } };
+
+  test("streams plain text through as separate deltas with no tools declared", async () => {
+    sendMessage.mockResolvedValueOnce([chunkedStream("hello ", "world"), null]);
+    const req = chatRequest({ messages: [{ role: "user", content: "hi" }], stream: true }, { "x-session-id": "s1" });
+
+    const res = await handleChatCompletions(req);
+
+    expect(res.headers.get("Content-Type")).toContain("text/event-stream");
+    const events = parseSseEvents(await res.text());
+    expect(events.map((e) => e.choices[0].delta.content ?? null)).toEqual(["hello ", "world", null]);
+    expect(events.at(-1).choices[0].finish_reason).toBe("stop");
+  });
+
+  test("detects a <tool_call> tag split across multiple stream chunks", async () => {
+    sendMessage.mockResolvedValueOnce([chunkedStream("hello ", "<tool_c", 'all>{"name": "search", "arguments": {}}</tool_call>'), null]);
+    const req = chatRequest({ messages: [{ role: "user", content: "hi" }], tools: [tool], stream: true }, { "x-session-id": "s1" });
+
+    const res = await handleChatCompletions(req);
+    const events = parseSseEvents(await res.text());
+
+    expect(events[0].choices[0].delta.content).toBe("hello ");
+    const toolCallEvent = events.find((e) => e.choices[0].delta.tool_calls);
+    expect(toolCallEvent.choices[0].delta.tool_calls[0].function).toEqual({ name: "search", arguments: "{}" });
+    expect(events.at(-1).choices[0].finish_reason).toBe("tool_calls");
+  });
+
+  test("withholds a trailing fragment that could still become the tag opening", async () => {
+    sendMessage.mockResolvedValueOnce([chunkedStream("hello <tool_c"), null]);
+    const req = chatRequest({ messages: [{ role: "user", content: "hi" }], tools: [tool], stream: true }, { "x-session-id": "s1" });
+
+    const res = await handleChatCompletions(req);
+    const events = parseSseEvents(await res.text());
+
+    // "hello " streams immediately; the trailing "<tool_c" is a candidate tag opening with no
+    // closing tag ever arriving, so it's withheld and flushed as plain text once the stream ends.
+    expect(events.map((e) => e.choices[0].delta.content ?? null)).toEqual(["hello ", "<tool_c", null]);
+    expect(events.at(-1).choices[0].finish_reason).toBe("stop");
+  });
+
+  test("falls back to raw text when a streamed tool_call fails to parse", async () => {
+    sendMessage.mockResolvedValueOnce([chunkedStream("<tool_call>not json</tool_call>"), null]);
+    const req = chatRequest({ messages: [{ role: "user", content: "hi" }], tools: [tool], stream: true }, { "x-session-id": "s1" });
+
+    const res = await handleChatCompletions(req);
+    const events = parseSseEvents(await res.text());
+
+    expect(events.map((e) => e.choices[0].delta.content ?? null)).toEqual(["<tool_call>not json</tool_call>", null]);
+    expect(events.at(-1).choices[0].finish_reason).toBe("stop");
+  });
+
+  test("surfaces an upstream parse failure as a proxy-error chunk instead of hanging", async () => {
+    sendMessage.mockResolvedValueOnce([
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.error(new Error("boom"));
+        },
+      }),
+      null,
+    ]);
+    const req = chatRequest({ messages: [{ role: "user", content: "hi" }], stream: true }, { "x-session-id": "s1" });
+
+    const res = await handleChatCompletions(req);
+    const body = await res.text();
+
+    expect(body).toContain("[proxy error] boom");
+    expect(body).toContain("data: [DONE]");
   });
 });

@@ -133,7 +133,8 @@ function streamChatResponse(upstream: ReadableStream<Uint8Array>, id: string, mo
         }
       } catch (err) {
         console.error("streamChatResponse failed:", err);
-        write(openaiChunk(id, modelId, `\n\n[proxy error] ${err instanceof Error ? err.message : String(err)}`, "stop"));
+        write(openaiChunk(id, modelId, `\n\n[proxy error] ${err instanceof Error ? err.message : String(err)}`, null));
+        write(openaiChunk(id, modelId, "", "stop"));
       }
       write("data: [DONE]\n\n");
       controller.close();
