@@ -74,7 +74,7 @@ main() {
   info "Detected platform: ${bold}${platform}-${platform_arch}${reset}"
   info "Downloading ${asset} (${VERSION})..."
   tmp_dir=$(mktemp -d)
-  trap 'rm -rf "$tmp_dir"' EXIT
+  trap 'rm -rf "${tmp_dir:-}"' EXIT
   curl -#L -o "$tmp_dir/$asset" "$url"
   curl -sL -o "$tmp_dir/checksums.txt" "$checksums_url"
   verify_checksum "$tmp_dir/$asset" "$tmp_dir/checksums.txt" "$asset" || {
