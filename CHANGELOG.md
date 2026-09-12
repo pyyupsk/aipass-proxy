@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.0](https://github.com/pyyupsk/aipass-proxy/compare/v0.1.2...v0.2.0) (2026-09-12)
+
+
+### Features
+
+* add JSON-schema structured output and tool-call retry ([#9](https://github.com/pyyupsk/aipass-proxy/issues/9)) ([260372b](https://github.com/pyyupsk/aipass-proxy/commit/260372b0abaa38e5f17d2307cfb756730c91db7d))
+* add version pinning, update, and uninstall to install.sh ([8bd7eb1](https://github.com/pyyupsk/aipass-proxy/commit/8bd7eb1001bceb947accaf83919a966551e2d565))
+* detect AIPass session expiry and surface a clear 401 ([#8](https://github.com/pyyupsk/aipass-proxy/issues/8)) ([47b42e5](https://github.com/pyyupsk/aipass-proxy/commit/47b42e5b1116017c43e4f4511e6966601f7515d4))
+* verify sha256 checksum in install.sh before installing ([#11](https://github.com/pyyupsk/aipass-proxy/issues/11)) ([3f5e222](https://github.com/pyyupsk/aipass-proxy/commit/3f5e222e18a6d64164d6493d644640f598da1527))
+
+
+### Bug Fixes
+
+* bind proxy server to localhost only ([#5](https://github.com/pyyupsk/aipass-proxy/issues/5)) ([d5a384a](https://github.com/pyyupsk/aipass-proxy/commit/d5a384ac531ae85da91cfc52d634e72b5711b295))
+* match release-please tag format to existing v0.1.x tags ([#2](https://github.com/pyyupsk/aipass-proxy/issues/2)) ([745e29b](https://github.com/pyyupsk/aipass-proxy/commit/745e29b7bccd18f5858664c9326b269f914bb8df))
+
 ## [0.1.2](https://github.com/pyyupsk/aipass-proxy/compare/v0.1.1...v0.1.2) (2026-09-11)
 
 ### Features
