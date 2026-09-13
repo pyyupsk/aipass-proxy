@@ -3,7 +3,7 @@ import { UpstreamError } from "@/lib/safe";
 
 vi.mock("@/env", () => ({ ENV_PATH: "/fake/.env", SESSION_TOKEN: "fake-token" }));
 
-const { createConversation, listModels, sendMessage } = await import("./client");
+const { createConversation, listModels, parseAipassStream, sendMessage } = await import("./client");
 
 function jsonResponse(body: unknown, contentType = "application/json") {
   return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": contentType } });
@@ -48,6 +48,32 @@ describe("listModels", () => {
     const [models, err] = await listModels();
     expect(models).toBeNull();
     expect(err?.status).toBe(401);
+  });
+});
+
+describe("parseAipassStream", () => {
+  function chunkStream(deltas: string[]) {
+    const chunks = [{ type: "text-start", id: "1" }, ...deltas.map((delta) => ({ type: "text-delta", id: "1", delta }))];
+    return new Response(chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).join("")).body as ReadableStream<Uint8Array>;
+  }
+
+  async function collect(deltas: string[]) {
+    let text = "";
+    for await (const delta of parseAipassStream(chunkStream(deltas))) text += delta;
+    return text;
+  }
+
+  test("yields the text deltas the stream carries", async () => {
+    expect(await collect(["hello ", "world"])).toBe("hello world");
+  });
+
+  test("strips an inserted marker that straddles two deltas", async () => {
+    expect(await collect(["ok .", "​/src works"])).toBe("ok ./src works");
+    expect(await collect(["ok ..", "​", "/src"])).toBe("ok ../src");
+  });
+
+  test("emits a trailing dot that never became a marker", async () => {
+    expect(await collect(["done."])).toBe("done.");
   });
 });
 

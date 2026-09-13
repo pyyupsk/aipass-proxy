@@ -1,23 +1,13 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { parseEnv } from "node:util";
 
 export const ENV_DIR = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "aipass-proxy");
 export const ENV_PATH = path.join(ENV_DIR, ".env");
 
-const ENV_LINE = /^([^#=]+)=(.*)$/;
-
-export function parseEnv(content: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const line of content.split("\n")) {
-    const match = ENV_LINE.exec(line);
-    if (match?.[1] && match[2] !== undefined) out[match[1].trim()] = match[2].trim();
-  }
-  return out;
-}
-
 export function readEnvFile(): Record<string, string> {
-  return existsSync(ENV_PATH) ? parseEnv(readFileSync(ENV_PATH, "utf8")) : {};
+  return existsSync(ENV_PATH) ? (parseEnv(readFileSync(ENV_PATH, "utf8")) as Record<string, string>) : {};
 }
 
 export function writeEnvFile(vars: Record<string, string>): void {

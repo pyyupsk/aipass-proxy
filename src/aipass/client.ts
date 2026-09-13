@@ -1,9 +1,9 @@
-import { parseJsonEventStream, readUIMessageStream, uiMessageChunkSchema } from "ai";
+import { parseJsonEventStream, uiMessageChunkSchema } from "ai";
 import { ENV_PATH, SESSION_TOKEN } from "@/env";
 import { type Result, safeWithRetry, UpstreamError, upstreamText } from "@/lib/safe";
 import { toAipassMessages } from "@/openai/transform";
 import type { OpenAIMessage } from "@/openai/types";
-import { sanitizeOutbound, stripZeroWidthSpace } from "./sanitize";
+import { PARTIAL_INSERTED_MARKER, sanitizeOutbound, stripZeroWidthSpace } from "./sanitize";
 import type { AipassModel } from "./types";
 
 export const AIPASS_BASE = "https://de.aipass.net";
@@ -103,26 +103,18 @@ export async function listModels(): Promise<Result<AipassModel[]>> {
   });
 }
 
-// AIPass streams the AI SDK's UI-message-chunk protocol.
+// AIPass streams the AI SDK's UI-message-chunk protocol. An echoed-back marker can
+// straddle two deltas, so hold a trailing fragment that could still become one.
 export async function* parseAipassStream(stream: ReadableStream<Uint8Array>) {
-  const chunkStream = parseJsonEventStream({ stream, schema: uiMessageChunkSchema }).pipeThrough(
-    new TransformStream({
-      transform(part, controller) {
-        if (!part.success) throw part.error;
-        controller.enqueue(part.value);
-      },
-    }),
-  );
-
-  let previousText = "";
-  for await (const message of readUIMessageStream({ stream: chunkStream })) {
-    const text = stripZeroWidthSpace(
-      message.parts
-        .filter((p): p is { type: "text"; text: string } => p.type === "text")
-        .map((p) => p.text)
-        .join(""),
-    );
-    if (text.length > previousText.length) yield text.slice(previousText.length);
-    previousText = text;
+  let pending = "";
+  for await (const part of parseJsonEventStream({ stream, schema: uiMessageChunkSchema })) {
+    if (!part.success) throw part.error;
+    if (part.value.type !== "text-delta") continue;
+    pending += part.value.delta;
+    const held = PARTIAL_INSERTED_MARKER.exec(pending)?.[0].length ?? 0;
+    const text = stripZeroWidthSpace(pending.slice(0, pending.length - held));
+    pending = pending.slice(pending.length - held);
+    if (text) yield text;
   }
+  if (pending) yield stripZeroWidthSpace(pending);
 }

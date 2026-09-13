@@ -1,35 +1,30 @@
 import { describe, expect, test } from "vitest";
-import { openaiChunk, openaiToolCallChunk, safeToEmitLength, TOOL_CALL_OPEN_TAG } from "./stream";
+import { openaiChunk, openaiToolCallChunks, safeToEmitLength, TOOL_CALL_OPEN_TAG } from "./stream";
 
 describe("openaiChunk", () => {
-  test("shapes an SSE data line with the content delta", () => {
+  test("shapes a chunk envelope with the content delta", () => {
     const chunk = openaiChunk("id-1", "gpt", "hello", null);
-    expect(chunk.startsWith("data: ")).toBe(true);
-    expect(chunk.endsWith("\n\n")).toBe(true);
-    const payload = JSON.parse(chunk.slice("data: ".length));
-    expect(payload.choices[0].delta).toEqual({ content: "hello" });
-    expect(payload.choices[0].finish_reason).toBeNull();
+    expect(chunk.object).toBe("chat.completion.chunk");
+    expect(chunk.choices[0]?.delta).toEqual({ content: "hello" });
+    expect(chunk.choices[0]?.finish_reason).toBeNull();
   });
 
   test("omits content and sets finish_reason when finishing", () => {
     const chunk = openaiChunk("id-1", "gpt", "", "stop");
-    const payload = JSON.parse(chunk.slice("data: ".length));
-    expect(payload.choices[0].delta).toEqual({});
-    expect(payload.choices[0].finish_reason).toBe("stop");
+    expect(chunk.choices[0]?.delta).toEqual({});
+    expect(chunk.choices[0]?.finish_reason).toBe("stop");
   });
 });
 
-describe("openaiToolCallChunk", () => {
+describe("openaiToolCallChunks", () => {
   test("emits an indexed tool_calls delta followed by a finish chunk", () => {
-    const chunk = openaiToolCallChunk("id-1", "gpt", [
+    const [first, second] = openaiToolCallChunks("id-1", "gpt", [
       { name: "a", arguments: {} },
       { name: "b", arguments: {} },
     ]);
-    const [first, second] = chunk.trim().split("\n\n");
-    const firstPayload = JSON.parse((first ?? "").slice("data: ".length));
-    expect(firstPayload.choices[0].delta.tool_calls.map((c: { index: number }) => c.index)).toEqual([0, 1]);
-    const secondPayload = JSON.parse((second ?? "").slice("data: ".length));
-    expect(secondPayload.choices[0].finish_reason).toBe("tool_calls");
+    const delta = first?.choices[0]?.delta as { tool_calls: { index: number }[] };
+    expect(delta.tool_calls.map((c) => c.index)).toEqual([0, 1]);
+    expect(second?.choices[0]?.finish_reason).toBe("tool_calls");
   });
 });
 

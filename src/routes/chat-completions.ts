@@ -1,6 +1,7 @@
+import { JsonToSseTransformStream } from "ai";
 import { createConversation, parseAipassStream, sendMessage } from "@/aipass/client";
 import { type Result, UpstreamError } from "@/lib/safe";
-import { openaiChunk, openaiToolCallChunk, safeToEmitLength, TOOL_CALL_OPEN_TAG } from "@/openai/stream";
+import { openaiChunk, openaiToolCallChunks, safeToEmitLength, TOOL_CALL_OPEN_TAG } from "@/openai/stream";
 import {
   buildJsonSchemaPrompt,
   buildToolsPrompt,
@@ -71,6 +72,11 @@ async function structuredChatResponse(
   );
 }
 
+function writeTextThenStop(id: string, modelId: string, text: string, write: (chunk: unknown) => void) {
+  if (text) write(openaiChunk(id, modelId, text, null));
+  write(openaiChunk(id, modelId, "", "stop"));
+}
+
 // Stream plain text through as it arrives; only start buffering once we've
 // actually seen <tool_call> open, so a text-only reply (the common case)
 // still streams instead of waiting for the whole response.
@@ -79,7 +85,7 @@ async function streamWithToolDetection(
   id: string,
   modelId: string,
   tools: OpenAITool[],
-  write: (s: string) => void,
+  write: (chunk: unknown) => void,
 ) {
   let pending = "";
   let toolCallBuffer: string | null = null;
@@ -104,43 +110,34 @@ async function streamWithToolDetection(
     }
   }
 
-  if (toolCallBuffer === null) {
-    if (pending) write(openaiChunk(id, modelId, pending, null));
-    write(openaiChunk(id, modelId, "", "stop"));
-    return;
-  }
+  if (toolCallBuffer === null) return writeTextThenStop(id, modelId, pending, write);
+
   const calls = extractToolCall(toolCallBuffer, tools);
-  if (calls.length) {
-    write(openaiToolCallChunk(id, modelId, calls));
-  } else {
-    write(openaiChunk(id, modelId, toolCallBuffer, null));
-    write(openaiChunk(id, modelId, "", "stop"));
-  }
+  if (!calls.length) return writeTextThenStop(id, modelId, toolCallBuffer, write);
+  for (const chunk of openaiToolCallChunks(id, modelId, calls)) write(chunk);
 }
 
 function streamChatResponse(upstream: ReadableStream<Uint8Array>, id: string, modelId: string, tools: OpenAITool[]) {
-  const readable = new ReadableStream({
+  const chunks = new ReadableStream({
     async start(controller) {
-      const encoder = new TextEncoder();
-      const write = (s: string) => controller.enqueue(encoder.encode(s));
+      const write = (chunk: unknown) => controller.enqueue(chunk);
 
       try {
         if (tools.length) {
           await streamWithToolDetection(upstream, id, modelId, tools, write);
         } else {
           for await (const delta of parseAipassStream(upstream)) write(openaiChunk(id, modelId, delta, null));
-          write(openaiChunk(id, modelId, "", "stop"));
+          writeTextThenStop(id, modelId, "", write);
         }
       } catch (err) {
         console.error("streamChatResponse failed:", err);
-        write(openaiChunk(id, modelId, `\n\n[proxy error] ${err instanceof Error ? err.message : String(err)}`, null));
-        write(openaiChunk(id, modelId, "", "stop"));
+        writeTextThenStop(id, modelId, `\n\n[proxy error] ${err instanceof Error ? err.message : String(err)}`, write);
       }
-      write("data: [DONE]\n\n");
       controller.close();
     },
   });
-  return new Response(readable, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
+  const sse = chunks.pipeThrough(new JsonToSseTransformStream()).pipeThrough(new TextEncoderStream());
+  return new Response(sse, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
 }
 
 export async function handleChatCompletions(req: Request) {
