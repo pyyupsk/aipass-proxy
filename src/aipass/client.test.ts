@@ -75,6 +75,23 @@ describe("parseAipassStream", () => {
   test("emits a trailing dot that never became a marker", async () => {
     expect(await collect(["done."])).toBe("done.");
   });
+
+  test("surfaces an upstream error chunk instead of ending cleanly", async () => {
+    const chunks = [
+      { type: "text-start", id: "1" },
+      { type: "text-delta", id: "1", delta: "partial" },
+      { type: "error", errorText: "rate limited" },
+    ];
+    const stream = new Response(chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).join("")).body as ReadableStream<Uint8Array>;
+
+    const read = async () => {
+      for await (const _ of parseAipassStream(stream)) {
+        // drain
+      }
+    };
+
+    await expect(read()).rejects.toThrow("rate limited");
+  });
 });
 
 describe("sendMessage", () => {

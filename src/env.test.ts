@@ -31,4 +31,12 @@ describe("readEnvFile / writeEnvFile", () => {
     writeEnvFile({ AIPASS_SESSION_TOKEN: "secret", PORT: "1234" });
     expect(readEnvFile()).toEqual({ AIPASS_SESSION_TOKEN: "secret", PORT: "1234" });
   });
+
+  test("round-trips values holding a #, a quote or trailing spaces", async () => {
+    vi.resetModules();
+    const { readEnvFile, writeEnvFile } = await import("./env");
+    const vars = { HASH: "tok#en", QUOTED: 'a"b', PADDED: "trailing  " };
+    writeEnvFile(vars);
+    expect(readEnvFile()).toEqual(vars);
+  });
 });

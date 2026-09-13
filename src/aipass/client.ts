@@ -109,6 +109,9 @@ export async function* parseAipassStream(stream: ReadableStream<Uint8Array>) {
   let pending = "";
   for await (const part of parseJsonEventStream({ stream, schema: uiMessageChunkSchema })) {
     if (!part.success) throw part.error;
+    // Without this a mid-stream upstream failure reads as a clean completion.
+    if (part.value.type === "error") throw new UpstreamError(`AIPass stream error: ${part.value.errorText}`, 502);
+    if (part.value.type === "abort") throw new UpstreamError("AIPass aborted the stream", 502);
     if (part.value.type !== "text-delta") continue;
     pending += part.value.delta;
     const held = PARTIAL_INSERTED_MARKER.exec(pending)?.[0].length ?? 0;

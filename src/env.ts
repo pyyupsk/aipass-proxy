@@ -10,10 +10,17 @@ export function readEnvFile(): Record<string, string> {
   return existsSync(ENV_PATH) ? (parseEnv(readFileSync(ENV_PATH, "utf8")) as Record<string, string>) : {};
 }
 
+// parseEnv strips one layer of quotes and has no escape syntax, so an unquoted value
+// loses everything from a "#" on, plus trailing spaces. Quote with a character the
+// value itself doesn't use. A value holding both quote characters isn't representable.
+function quoteEnvValue(value: string): string {
+  return value.includes('"') ? `'${value}'` : `"${value}"`;
+}
+
 export function writeEnvFile(vars: Record<string, string>): void {
   mkdirSync(ENV_DIR, { recursive: true, mode: 0o700 });
   const content = `${Object.entries(vars)
-    .map(([k, v]) => `${k}=${v}`)
+    .map(([k, v]) => `${k}=${quoteEnvValue(v)}`)
     .join("\n")}\n`;
   writeFileSync(ENV_PATH, content, { mode: 0o600 });
   chmodSync(ENV_PATH, 0o600);
