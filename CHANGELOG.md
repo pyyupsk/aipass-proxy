@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/pyyupsk/aipass-proxy/compare/v0.2.0...v0.2.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* avoid unbound variable in install.sh EXIT trap ([#12](https://github.com/pyyupsk/aipass-proxy/issues/12)) ([3d87ce4](https://github.com/pyyupsk/aipass-proxy/commit/3d87ce499ac6db11d0611a6f76089289736b1acb))
+
 ## [0.2.0](https://github.com/pyyupsk/aipass-proxy/compare/v0.1.2...v0.2.0) (2026-09-12)
 
 
