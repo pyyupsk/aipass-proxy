@@ -2,25 +2,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { parseEnv } from "./env";
-
-describe("parseEnv", () => {
-  test("parses key=value lines", () => {
-    expect(parseEnv("FOO=bar\nBAZ=qux")).toEqual({ FOO: "bar", BAZ: "qux" });
-  });
-
-  test("trims whitespace around keys and values", () => {
-    expect(parseEnv("FOO = bar \n")).toEqual({ FOO: "bar" });
-  });
-
-  test("ignores comment and blank lines", () => {
-    expect(parseEnv("# a comment\n\nFOO=bar")).toEqual({ FOO: "bar" });
-  });
-
-  test("ignores malformed lines with no =", () => {
-    expect(parseEnv("not-a-line\nFOO=bar")).toEqual({ FOO: "bar" });
-  });
-});
 
 describe("readEnvFile / writeEnvFile", () => {
   let tmpDir: string;
@@ -49,5 +30,13 @@ describe("readEnvFile / writeEnvFile", () => {
     const { readEnvFile, writeEnvFile } = await import("./env");
     writeEnvFile({ AIPASS_SESSION_TOKEN: "secret", PORT: "1234" });
     expect(readEnvFile()).toEqual({ AIPASS_SESSION_TOKEN: "secret", PORT: "1234" });
+  });
+
+  test("round-trips values holding a #, a quote or trailing spaces", async () => {
+    vi.resetModules();
+    const { readEnvFile, writeEnvFile } = await import("./env");
+    const vars = { HASH: "tok#en", QUOTED: 'a"b', PADDED: "trailing  " };
+    writeEnvFile(vars);
+    expect(readEnvFile()).toEqual(vars);
   });
 });

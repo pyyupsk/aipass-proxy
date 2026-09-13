@@ -12,30 +12,28 @@ export function safeToEmitLength(buffer: string, tag: string) {
   return buffer.length;
 }
 
-function envelope(id: string, model: string, object: string, fields: Record<string, unknown>) {
+function envelope<T extends Record<string, unknown>>(id: string, model: string, object: string, fields: T) {
   return { id, object, created: Math.floor(Date.now() / 1000), model, ...fields };
 }
 
+// Plain objects: JsonToSseTransformStream does the SSE framing.
 export function openaiChunk(id: string, model: string, delta: string, finishReason: string | null) {
-  return `data: ${JSON.stringify(
-    envelope(id, model, "chat.completion.chunk", {
-      choices: [{ index: 0, delta: finishReason ? {} : { content: delta }, finish_reason: finishReason }],
-    }),
-  )}\n\n`;
+  return envelope(id, model, "chat.completion.chunk", {
+    choices: [{ index: 0, delta: finishReason ? {} : { content: delta }, finish_reason: finishReason }],
+  });
 }
 
-export function openaiToolCallChunk(id: string, model: string, calls: { name: string; arguments: unknown }[]) {
+export function openaiToolCallChunks(id: string, model: string, calls: { name: string; arguments: unknown }[]) {
   const toolCalls = calls.map((call, index) => ({
     index,
     id: crypto.randomUUID(),
     type: "function",
     function: { name: call.name, arguments: JSON.stringify(call.arguments) },
   }));
-  const deltaChunk = envelope(id, model, "chat.completion.chunk", {
-    choices: [{ index: 0, delta: { tool_calls: toolCalls }, finish_reason: null }],
-  });
-  const stopChunk = envelope(id, model, "chat.completion.chunk", {
-    choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
-  });
-  return `data: ${JSON.stringify(deltaChunk)}\n\ndata: ${JSON.stringify(stopChunk)}\n\n`;
+  return [
+    envelope(id, model, "chat.completion.chunk", {
+      choices: [{ index: 0, delta: { tool_calls: toolCalls }, finish_reason: null }],
+    }),
+    envelope(id, model, "chat.completion.chunk", { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] }),
+  ];
 }
