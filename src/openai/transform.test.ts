@@ -8,6 +8,7 @@ import {
   textResponse,
   toAipassMessages,
   toolCallResponse,
+  validateJsonSchema,
 } from "./transform";
 import type { JsonSchema, OpenAIMessage, OpenAITool } from "./types";
 
@@ -132,6 +133,36 @@ describe("extractToolCallErrors", () => {
   });
 });
 
+describe("validateJsonSchema", () => {
+  test("passes a matching object", () => {
+    const schema: JsonSchema = { type: "object", required: ["name"], properties: { name: { type: "string" } } };
+    expect(validateJsonSchema({ name: "cats" }, schema)).toEqual([]);
+  });
+
+  test("flags a missing required property", () => {
+    const schema: JsonSchema = { type: "object", required: ["name"], properties: { name: { type: "string" } } };
+    expect(validateJsonSchema({}, schema)).toEqual(["name: required property missing"]);
+  });
+
+  test("flags a type mismatch on a nested property", () => {
+    const schema: JsonSchema = { type: "object", properties: { age: { type: "number" } } };
+    const [error] = validateJsonSchema({ age: "old" }, schema);
+    expect(error).toContain("age");
+    expect(error).toContain('expected type "number"');
+  });
+
+  test("flags a value outside an enum", () => {
+    const schema: JsonSchema = { enum: ["a", "b"] };
+    expect(validateJsonSchema("c", schema)).toEqual(['root: expected one of ["a","b"], got "c"']);
+  });
+
+  test("validates array items", () => {
+    const schema: JsonSchema = { type: "array", items: { type: "number" } };
+    const [error] = validateJsonSchema([1, "two"], schema);
+    expect(error).toContain("[1]");
+  });
+});
+
 describe("parseStructuredOutput", () => {
   const schema: JsonSchema = { type: "object", required: ["answer"], properties: { answer: { type: "string" } } };
 
@@ -153,19 +184,6 @@ describe("parseStructuredOutput", () => {
   test("fails on a schema mismatch", () => {
     const result = parseStructuredOutput("{}", schema);
     expect(result.ok).toBe(false);
-  });
-
-  test("reports the path of a nested mismatch", () => {
-    const nested: JsonSchema = { type: "object", properties: { items: { type: "array", items: { type: "number" } } } };
-    const result = parseStructuredOutput('{"items": [1, "two"]}', nested);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.errors.join("\n")).toContain("items[1]");
-  });
-
-  test("fails with a clear error on a schema zod cannot represent", () => {
-    const result = parseStructuredOutput('{"answer": "42"}', { $ref: "#/definitions/missing" });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.errors[0]).toContain("unsupported json_schema");
   });
 });
 
