@@ -8,7 +8,7 @@ OpenAI-compatible chat-completions proxy in front of [AIPass](https://de.aipass.
 ## Install
 
 ```sh
-curl -sL https://raw.githubusercontent.com/pyyupsk/aipass-proxy/main/install.sh | bash
+curl -sL https://fasu.dev/aipass-proxy | bash
 ```
 
 Detects your OS/arch and installs the latest binary to `~/.local/bin` (override with `INSTALL_DIR=...`, pin a release with `VERSION=vX.Y.Z ...`). No clone, no Bun/Node install required.
@@ -66,13 +66,13 @@ Or point an OpenAI-compatible client (e.g. opencode) at `http://localhost:47871/
 ## Updating
 
 ```sh
-curl -sL https://raw.githubusercontent.com/pyyupsk/aipass-proxy/main/install.sh | bash -s update
+curl -sL https://fasu.dev/aipass-proxy | bash -s update
 ```
 
 ## Uninstalling
 
 ```sh
-curl -sL https://raw.githubusercontent.com/pyyupsk/aipass-proxy/main/install.sh | bash -s uninstall
+curl -sL https://fasu.dev/aipass-proxy | bash -s uninstall
 ```
 
 Removes the binary and any installed systemd/launchd service unit. Stop the running service first (`systemctl --user disable --now aipass-proxy` or `launchctl unload ~/Library/LaunchAgents/com.aipass-proxy.plist`).
