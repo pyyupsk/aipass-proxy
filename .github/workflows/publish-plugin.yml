@@ -21,6 +21,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun install --frozen-lockfile
         working-directory: plugin
+      - run: bun run build
+        working-directory: plugin
       - run: bun run typecheck
         working-directory: plugin
       - run: npm publish --access public --provenance
