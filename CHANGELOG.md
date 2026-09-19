@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/pyyupsk/aipass-proxy/compare/v0.2.1...v0.3.0) (2026-09-19)
+
+
+### Features
+
+* add opencode-aipass plugin with dynamic model discovery ([f6c1444](https://github.com/pyyupsk/aipass-proxy/commit/f6c14445fe4629d1380e2749b2c76b3ff75143bc))
+
 ## [0.2.1](https://github.com/pyyupsk/aipass-proxy/compare/v0.2.0...v0.2.1) (2026-09-13)
 
 
