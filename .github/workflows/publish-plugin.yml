@@ -23,5 +23,7 @@ jobs:
         working-directory: plugin
       - run: bun run typecheck
         working-directory: plugin
-      - run: npm publish --access public
+      - run: npm publish --access public --provenance
         working-directory: plugin
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
