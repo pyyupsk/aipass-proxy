@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "opencode-aipass",
+  "version": "0.1.0",
+  "description": "OpenCode v2 plugin — dynamic aipass-proxy provider with auto-discovery from GET /v1/models",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "check": "biome check --config-path ../.configs/biome.json .",
+    "test": "vitest run --config ../.configs/vitest.ts"
+  },
+  "dependencies": {
+    "@opencode/plugin": "^2.0.8"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0-rc.112",
+    "zod": "^4.1.8"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "openai-compatible",
+    "aipass"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "5.8.2"
+  }
+}
