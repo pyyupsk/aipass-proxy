@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["aipass-proxy-v*", "v*"]
 
 jobs:
   build:
