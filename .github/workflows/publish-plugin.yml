@@ -23,5 +23,5 @@ jobs:
         working-directory: plugin
       - run: bun run typecheck
         working-directory: plugin
-      - run: npm publish --access public --provenance
+      - run: npm publish --access public
         working-directory: plugin
