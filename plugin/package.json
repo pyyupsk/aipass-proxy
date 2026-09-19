@@ -37,5 +37,10 @@
   "files": [
     "src",
     "README.md"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pyyupsk/aipass-proxy",
+    "directory": "plugin"
+  }
 }
